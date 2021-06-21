@@ -65,3 +65,6 @@ consolidate all aggregating score method into one interface.
 
 ### FGSEA
 FGSEA gene set should be created as a list, containing named gene set names consisting of gene symbols.
+
+#### Calculate rank
+Use the stat generated from `DESeq2` stat (non-shirnked).

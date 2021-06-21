@@ -61,3 +61,7 @@ consolidate all aggregating score method into one interface.
 ### Can be improved
 
 ### Can't 
+
+
+### FGSEA
+FGSEA gene set should be created as a list, containing named gene set names consisting of gene symbols.

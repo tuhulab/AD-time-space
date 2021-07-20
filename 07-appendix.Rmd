@@ -1,0 +1,30 @@
+---
+title: "07-Appendix"
+author: "Tu Hu"
+date: "7/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = FALSE)
+```
+
+## QC and Data Curation
+
+```{r Sample QC record}
+library(googledrive)
+library(googlesheets4)
+gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
+sample_qc_record_url <- 
+  googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
+  filter(name == "sample_qc_record") %>% 
+  pull(id)
+sample_qc_record_edited <-
+  googlesheets4::read_sheet(ss = sample_qc_record_url)
+```
+
+```{r QC record - display}
+DT::datatable(sample_qc_record_edited) %>% 
+  DT::formatRound(c("r_LS", "r_NL", "r_NN", "r_replicate"))
+```
+

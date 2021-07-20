@@ -1,0 +1,509 @@
+# Skin Transcriptome in Time and Space
+
+## Data cleaning and curation
+```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(purrr)
+library(tidybulk)
+library(tidySummarizedExperiment)
+library(ComplexHeatmap)
+library(DT)
+library(BiocParallel)
+library(DESeq2)
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = FALSE)
+```
+
+```{r load data, cache=TRUE}
+# read raw counts ---------------------------------------
+counts <-
+  gzfile("../multiomics-ad-transcriptomics/data/counts/counts_gene_name_redo.txt.gz") %>%
+  readr::read_tsv(skip = 1) %>%
+  mutate(Chr = Chr %>% str_extract("chr\\w{1,}(?=;)|chr\\w{1,}$"), #keeps only 1
+         Strand = Strand %>% str_extract("\\+|\\-"),               #keeps only 1
+         Start = Start %>% str_extract("\\d{1,}(?=;)|\\d{1,}$"),   #keeps only 1
+         End = End %>% str_extract("\\d{1,}(?=;)|\\d{1,}$")) %>%   #keeps only 1
+  filter(!Geneid %>% 
+           stringr::str_detect("\\d{1,}P$|\\d{1,}P\\d{1,}$|\\.|-AS\\d{1}|-DT")) %>% # apply gene filtering (pseudo genes, antisense genese, DT genes)
+  dplyr::rename_with(str_extract, starts_with("/home/projects/"), pattern = "NG-[:graph:]{1,}$")
+
+# lib to merge -------------
+lib_id <- colnames(counts)[-1:-6] %>% str_extract("lib\\d{1,}") # extract lib id
+lib_id_t <- table(lib_id)
+lib_id_merge <- lib_id_t[(lib_id_t != 1)] %>% rownames() #lib_ids to be merged
+
+# merge technical replicates -------------------------------------------
+source("../multiomics-ad-transcriptomics/R/helper.R")
+
+counttable_LibMerged <- 
+  bind_cols(counts[, 1:6], 
+            counttable_merge_library_fun(counts %>% select(-1:-6), lib_id_merge)) 
+
+# clinical records ------------------------
+clinical_records <- 
+  readr::read_csv("../multiomics-ad-transcriptomics/data/LEO-AD-metadata.csv") %>% 
+  mutate(id = id %>% str_replace("-", "_"),
+         JOIN_ID = paste(id, paste0("0",visit_no), sep="_"))
+
+extensive_meta <-
+  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv")
+```
+
+```{r SummarizedExperiment}
+
+# se col_data
+col_data <-
+  tibble(
+    # definingn metadata --------------------------------------
+    BAM_ID = colnames(counttable_LibMerged)[-1:-6]) %>% 
+    mutate(sequencing_batch = BAM_ID %>% str_extract("NG-\\d{1,}"),
+           group = BAM_ID %>% str_extract("AD|CO") %>% 
+               forcats::fct_relevel(c("CO", "AD")),
+           subject = BAM_ID %>% str_extract("(AD|CO)_\\d{2,}"),
+           visit = BAM_ID %>% str_extract("\\d{2,}_(AD|CO)") %>% str_extract("\\d{2,}"),
+           skin_type = BAM_ID %>% str_replace("TS", "LS") %>% str_extract("NN|NL|LS") %>% forcats::fct_relevel(c("NN", "NL", "LS")),
+           replicate_ID = BAM_ID %>% str_replace("TS_BI", "BI_LS") %>% str_extract("(NN|NL|LS)_\\d{2,}") %>% str_extract("\\d{2,}"),
+           library_ID = BAM_ID %>% str_extract("lib\\d{1,}"),
+           sequencing_id = BAM_ID %>% str_extract("\\d{4}_(1|2)"),
+           JOIN_ID = base::paste(subject, visit, sep = "_")) %>%
+    left_join(clinical_records %>% select(id, gender) %>% filter(!is.na(gender)), by=c("subject"="id")) %>%
+    left_join(clinical_records %>% select(JOIN_ID, scorad, scorad_objective, easi_total_score, date_visit)) %>% 
+    select(-JOIN_ID) %>% 
+    mutate(gender = gender %>% forcats::fct_relevel(c("female", "male"))) %>% 
+    left_join(extensive_meta %>% select(BAM_ID, rna_quality, visit_quarter))
+
+# Summarized Experiment--------------------
+se <- SummarizedExperiment::SummarizedExperiment(
+  assays = list(counts = counttable_LibMerged %>% select(-1:-6) %>% as.matrix),
+  colData = col_data
+)
+names(se) <- counttable_LibMerged$Geneid
+```
+
+```{r filtering}
+# filter out genes 
+se <- se %>% keep_abundant(factor_of_interest = skin_type) %>% scale_abundance()
+
+# filter out samples ----------------
+se <- se[, se$BAM_ID != (assay(se) %>% colSums() %>% which.min %>% names)] # 392
+se <- se[, !se$library_ID %in% c("lib390174", "lib390716")] # 390
+```
+
+```{r revise some sp info}
+index_ad03v01ls01 <-
+  which(colData(se)$subject == "AD_03" &
+        colData(se)$visit == "01" &
+        colData(se)$skin_type == "LS" &
+        colData(se)$replicate_ID == "01")
+colData(se)$skin_type[index_ad03v01ls01] <- "NL"
+
+index_ad03v01nl01 <-
+  which(colData(se)$subject == "AD_03" &
+          colData(se)$visit == "01" &
+          colData(se)$skin_type == "NL" &
+          colData(se)$replicate_ID == "01")
+colData(se)$skin_type[index_ad03v01nl01] <- "LS"
+
+index_ad13v03nl01 <-
+  which(colData(se)$subject == "AD_13" &
+        colData(se)$visit == "03" &
+        colData(se)$skin_type == "NL" &
+        colData(se)$replicate_ID == "01")
+colData(se)$visit[index_ad13v03nl01] <- "05"
+colData(se)$skin_type[index_ad13v03nl01] <- "LS"
+colData(se)$replicate_ID[index_ad13v03nl01] <- "02"
+
+index_ad13v05ls02 <-
+  which(colData(se)$subject == "AD_13" &
+        colData(se)$visit == "05" &
+        colData(se)$skin_type == "LS" &
+        colData(se)$replicate_ID == "02")
+colData(se)$visit[index_ad13v05ls02] <- "03"
+colData(se)$skin_type[index_ad13v05ls02] <- "NL"
+colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
+```
+
+
+```{r Sample QC}
+library(googledrive)
+library(googlesheets4)
+gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
+sample_qc_record_url <- 
+  googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
+  filter(name == "sample_qc_record") %>% 
+  pull(id)
+sample_qc_record_edited <-
+  googlesheets4::read_sheet(ss = sample_qc_record_url)
+```
+
+```{r exclude}
+exclude_BAM <- 
+  colData(se) %>% as_tibble() %>% 
+  select(BAM_ID, subject, visit, skin_type, replicate_ID) %>%
+  left_join(sample_qc_record_edited) %>% 
+  filter(exclude == TRUE) %>% pull(BAM_ID)
+```
+
+```{r generate new se, cache.lazy=FALSE}
+se <- 
+  se %>% 
+  filter(!BAM_ID %in% exclude_BAM)
+```
+## Explorative data analysis
+### Principle component analysis (PCA)
+```{r PCA, include = TRUE}
+PCA <- 
+  se %>% 
+  reduce_dimensions(method = "PCA", top = 350)
+
+PCA %>% 
+  pivot_sample() %>% 
+  ggplot(aes(PC1, PC2, 
+             color = skin_type, 
+             scorad = scorad,
+             subject = subject, visit = visit, 
+             skin_type = skin_type, replicate_ID = replicate_ID,
+             rna_quality = rna_quality)) + geom_point() +
+  xlab(paste0("PC1 (Var% explained:", summary(attr(PCA, "internals")$PCA)$importance[2,1] %>% scales::percent(), ")")) +
+  ylab(paste0("PC2 (Var% explained:", summary(attr(PCA, "internals")$PCA)$importance[2,2] %>% scales::percent(), ")")) +
+  theme_classic() + 
+  ggsci::scale_color_nejm() +
+  ggtitle("PCA plot")
+```
+
+```{r cleaning}
+rm(list = ls()[ls() != "se"])
+```
+
+### Sample Distance and Similarity
+```{r distance}
+dist_st <- # st: skin_type
+  lapply(c("LS", "NL", "NN"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      t() %>% 
+      dist() %>% 
+      as.numeric()})
+
+cosine_st <-
+    lapply(c("LS", "NL", "NN"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(dist_st) <- c("LS", "NL", "NN")
+names(cosine_st) <- c("LS", "NL", "NN")
+
+dist_df <- plyr::ldply(dist_st, tibble, .name_repair = ~ c("dist"),
+                       .id = "skin_type")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type")
+
+dist_df %>% 
+  ggplot(aes(x = dist, 
+             color = skin_type,
+             fill = skin_type)) +
+  geom_density(alpha = .6) +
+  theme_classic() +
+  ggsci::scale_color_nejm() + 
+  ggsci::scale_fill_nejm() +
+  xlab("Euclidean Distance")
+
+cosine_df %>% 
+  ggplot(aes(x = cos_dist, 
+             color = skin_type,
+             fill = skin_type)) +
+  geom_density(alpha = .4) +
+  theme_classic() +
+  ggsci::scale_color_nejm() + 
+  ggsci::scale_fill_nejm() +
+  xlab("Cosine similarity")
+
+```
+
+### Heatmap
+```{r heatmap, fig.align='center', dpi = 300}
+heatmap_data <- 
+  se %>% 
+  keep_variable(.abundance = counts_scale,
+                top = 150)
+
+assay(heatmap_data) <-
+  log1p(assay(heatmap_data))
+
+heatmap_data_m <- heatmap_data %>% assay()
+
+heatmap_annotation <- 
+  HeatmapAnnotation(`tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type))
+
+ComplexHeatmap::Heatmap(heatmap_data_m, 
+                        name = "log(gene expression)",
+                        show_column_names = FALSE,
+                        row_names_gp = gpar(fontsize = min(12, 400 / dim(heatmap_data_m)[1])),
+                        top_annotation = heatmap_annotation)
+```
+
+## Differential gene expression (DGE) analysis
+
+### Baseline
+
+```{r DGE-V1, echo=TRUE}
+# cleaning
+rm(list = ls()[ls() != "se"])
+
+register(MulticoreParam(7))
+# V1 LSvsNL --------------------
+se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
+de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNL_result <- bind_cols(tibble(gene_name = rownames(se_v1_LSvsNL)), de_v1_LSvsNL_LFC %>% as_tibble())
+de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+# V1 LSvsNN --------------------
+se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
+de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_LSvsNN)), de_v1_LSvsNN_LFC %>% as_tibble())
+de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+# V1 LSvsNN --------------------
+se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
+de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_NLvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_NLvsNN)), de_v1_NLvsNN_LFC %>% as_tibble())
+de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+```
+
+```{r Consolidate Results display}
+de_v1_c <-
+  bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
+            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsNN"),
+            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsNN")) %>% 
+  select(gene_name, log2FoldChange, padj, contrast) %>% 
+  pivot_wider(names_from = contrast, values_from = c("log2FoldChange", "padj")) %>% 
+  arrange(-log2FoldChange_LSvsNL)
+
+t_container <- htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(rowspan = 2, 'Gene name'),
+      th(colspan = 3, 'log2 Fold Change'),
+      th(colspan = 3, 'Adjusted p-value')
+    ),
+    tr(
+      lapply(rep(c('LSvsNL', 'LSvsNN', "NLvsNN"), 2), th)
+    )
+  )
+))
+  
+datatable(de_v1_c, colnames = c("gene name", "LSvsNL", "LSvsNN", "NLvsNN", "LSvsNL", "LSvsNN", "NLvsNN"), container = t_container, rownames = FALSE,
+          options = list(pageLength = 20)) %>% 
+  formatRound(de_v1_c %>% colnames %>% str_extract("log2FoldChange_\\w{6}") %>% purrr::discard(is.na)) %>% 
+  formatSignif(de_v1_c %>% colnames %>% str_extract("padj_\\w{6}") %>% purrr::discard(is.na), digits = 3)
+```
+
+Number of dysregulated genes at visit 1:
+
+* `LSvsNL`: `r de_v1_LSvsNL_result_s %>% filter(log2FoldChange > 0) %>% nrow` up-regulated and `r de_v1_LSvsNL_result_s %>% filter(log2FoldChange < 0) %>% nrow` down-regulated;
+* `LSvsNN`: `r de_v1_LSvsNN_result_s %>% filter(log2FoldChange > 0) %>% nrow` up-regulated and `r de_v1_LSvsNN_result_s %>% filter(log2FoldChange > 0) %>% nrow` down-regulated
+* `NLvsNN`: `r de_v1_NLvsNN_result_s %>% filter(log2FoldChange > 0) %>% nrow` up-regulated and `r de_v1_NLvsNN_result_s %>% filter(log2FoldChange < 0) %>% nrow` down-regulated
+
+
+### Time Effect
+
+I performed `Likelihood Ratio Test (LRT)` to test the genes react in the condition-specific manner over time, compared to baseline samples. I first specify a `full model` containing all terms. Then test a `reduced model`.
+
+```{r model time (visit)}
+
+# clean the environment for parallel 
+rm(list = ls()[ls() != "se"])
+
+# LS vs NL
+se_t_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
+de_t_LSvsNL <- DESeq2::DESeqDataSet(se_t_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
+
+de_t_LSvsNL_m <- DESeq2::DESeq(de_t_LSvsNL, test="LRT", 
+                              reduced = ~  subject + visit + skin_type,
+                              parallel = TRUE)
+
+deT_LSvsNL_res <- 
+  bind_cols(tibble(gene_name = names(de_t_LSvsNL_m)),
+  DESeq2::results(de_t_LSvsNL_m) %>% as_tibble())
+
+# LS vs NN
+se_t_LSvsNN <-
+  se %>%
+  filter(skin_type %in% c("LS", "NN"))
+
+de_t_LSvsNN <- DESeq2::DESeqDataSet(se_t_LSvsNN, ~  gender + visit + skin_type + skin_type * visit)
+
+de_t_LSvsNN_m <- DESeq2::DESeq(de_t_LSvsNN, test="LRT", 
+                              reduced = ~ gender + visit + skin_type,
+                              parallel = TRUE)
+de_t_LSvsNN_res <- 
+  bind_cols(tibble(gene_name = names(de_t_LSvsNN_m)),
+  DESeq2::results(de_t_LSvsNN_m) %>% as_tibble())
+
+# NL vs NN
+se_t_NLvsNN <-
+  se %>%
+  filter(skin_type %in% c("NL", "NN"))
+
+de_t_NLvsNN <- DESeq2::DESeqDataSet(se_t_NLvsNN, ~  gender + visit + skin_type + skin_type * visit)
+
+de_t_NLvsNN_m <- DESeq2::DESeq(de_t_NLvsNN, test="LRT", 
+                              reduced = ~ gender + visit + skin_type,
+                              parallel = TRUE)
+de_t_NLvsNN_res <- 
+  bind_cols(tibble(gene_name = names(de_t_NLvsNN_m)),
+  DESeq2::results(de_t_NLvsNN_m) %>% as_tibble())
+```
+
+```{r model time(visit)-vis}
+betas <- coef(de_t_LSvsNN_m)
+colnames(betas)
+topGenes <- names(de_t_LSvsNN_m)[head(order(de_t_LSvsNN_res$padj),20)]
+mat <- betas[topGenes, -c(1,2)]
+thr <- 3 
+mat[mat < -thr] <- -thr
+mat[mat > thr] <- thr
+pheatmap(mat, breaks=seq(from=-thr, to=thr, length=101),
+         cluster_col=FALSE)
+```
+
+
+
+```{r model time(quarter)}
+
+se <- se[, - which(is.na(se$visit_quarter))]
+se_q_LSvsNL <- se[, se$skin_type %in% c("LS", "NL")]
+se_q_LSvsNN <- se[, se$skin_type %in% c("LS", "NN")]
+se_q_NLvsNN <- se[, se$skin_type %in% c("NL", "NN")]
+
+# LS vs NL
+
+de_q_LSvsNL <- DESeq2::DESeqDataSet(se_q_LSvsNL, ~ subject + visit_quarter + skin_type + skin_type * visit_quarter)
+
+de_q_LSvsNL_m <- DESeq2::DESeq(de_q_LSvsNL, test="LRT", 
+                              reduced = ~  subject + visit_quarter + skin_type,
+                              parallel = TRUE)
+
+de_q_LSvsNL_res <- 
+  bind_cols(tibble(gene_name = names(de_q_LSvsNL_m)),
+  DESeq2::results(de_q_LSvsNL_m) %>% as_tibble())
+
+# LS vs NN
+
+de_q_LSvsNN <- DESeq2::DESeqDataSet(se_q_LSvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
+
+de_q_LSvsNN_m <- DESeq2::DESeq(de_q_LSvsNN, test="LRT", 
+                              reduced = ~ gender + visit_quarter + skin_type,
+                              parallel = TRUE)
+de_q_LSvsNN_res <- 
+  bind_cols(tibble(gene_name = names(de_q_LSvsNN_m)),
+  DESeq2::results(de_q_LSvsNN_m) %>% as_tibble())
+
+# NL vs NN
+de_q_NLvsNN <- DESeq2::DESeqDataSet(se_q_NLvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
+
+de_q_NLvsNN_m <- DESeq2::DESeq(de_q_NLvsNN, test="LRT", 
+                              reduced = ~ gender + visit_quarter + skin_type,
+                              parallel = TRUE)
+de_q_NLvsNN_res <- 
+  bind_cols(tibble(gene_name = names(de_q_NLvsNN_m)),
+  DESeq2::results(de_q_NLvsNN_m) %>% as_tibble())
+```
+
+```{r model time(quarter)-vis}
+heatmap_de_model <- 
+  function(de_model){
+    de_model_res <- 
+      bind_cols(tibble(gene_name = names(de_model)),
+                DESeq2::results(de_model) %>% as_tibble())
+    betas <- coef(de_model)
+    
+    topGenes <- names(de_model)[head(order(de_model_res$padj),20)]
+    col_to_plot <- colnames(betas) %>%
+                   str_extract("visit_quarter[:graph:]{1,}") %>% 
+                   purrr::discard(is.na)
+    mat <- betas[topGenes, col_to_plot]
+    colnames(mat) <- col_to_plot %>% str_remove("visit_quarter") %>% str_remove("^_")
+    thr <- 3 
+    mat[mat < -thr] <- -thr
+    mat[mat > thr] <- thr
+    pheatmap(mat, 
+             breaks=seq(from=-thr, to=thr, length=101), 
+             cluster_col=FALSE, angle_col = "45", 
+             main = deparse(substitute(de_model)) %>% str_extract("(LS|NL)vs(NL|NN)"))
+  }
+
+heatmap_de_model(de_q_LSvsNL_m)
+heatmap_de_model(de_q_LSvsNN_m)
+heatmap_de_model(de_q_NLvsNN_m)
+```
+
+
+### Space effect
+
+
+## Gene Set Analysis
+
+## Cell Type Deconvolution
+```{r}
+
+```
+
+
+## Varian Partition (to work)
+
+```{r input data, eval=FALSE, echo=TRUE}
+
+# metadata -------------------------
+metadata <- 
+
+# -----------------------------------
+
+# gene expression data -------------
+countable <- dl$countable[,metadata$BAM_ID] %>% as.matrix()
+rownames(countable) <- dl$gene_annotation$Geneid
+geneExpr <- DGEList(countable)
+geneExpr <- calcNormFactors(geneExpr)
+
+# formula --------------------------
+countable <- dl$countable[,metadata$BAM_ID] %>% as.matrix()
+rownames(countable) <- dl$gene_annotation$Geneid
+geneExpr <- DGEList(countable)
+geneExpr <- calcNormFactors(geneExpr)
+form <- ~ skin_type + (1|subject) + visit
+v_obj_dream <- voomWithDreamWeights(geneExpr, form, metadata)
+```
+
+
+```{r variance explained, eval=FALSE, echo=TRUE}
+
+vp <- 
+  variancePartition::fitExtractVarPartModel(
+    assay(se, 2), 
+    ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
+    colData(se) %>% as_tibble()
+    )
+variancePartition::plotVarPart(vp)
+```
+
+```{r}
+se_500 <- se %>% keep_variable()
+vp_500 <- variancePartition::fitExtractVarPartModel(
+    assay(se_500, 2), 
+    ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
+    colData(se_500) %>% as_tibble()
+    )
+variancePartition::plotVarPart(vp_500)
+```
+

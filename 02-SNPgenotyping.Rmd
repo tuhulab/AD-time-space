@@ -1,5 +1,0 @@
-# Genotyping
-
-## Statistics
-
-## Extracting SNP genotyping data

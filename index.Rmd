@@ -1,5 +1,5 @@
 --- 
-title: "Multi-omics AD PhD Project"
+title: "Multi-omics Atopic Dermatitis"
 author: "Tu Hu"
 date: "`r Sys.Date()`"
 site: bookdown::bookdown_site
@@ -8,23 +8,14 @@ documentclass: book
 bibliography: [book.bib, packages.bib]
 biblio-style: apalike
 link-citations: yes
-github-repo: rstudio/bookdown-demo
-description: "Bookdowning my PhD"
+github-repo: tuhulab/multiomics-ad-phd
+description: "This is a minimal example of using the bookdown package to write a book. The output format for this example is bookdown::gitbook."
 ---
 
-# Prerequisites
+This thesis has been submitted to the Graduate School of Health and Medical Sciences, University of Copenhagen on [INSERT DATE]
 
-I'm drafting my thesis using bookdown.
+# Preface {-}
 
+## About the author {-}
 
-
-Remember each Rmd file contains one and only one chapter, and a chapter is defined by the first-level heading `#`.
-
-To compile this example to PDF, you need XeLaTeX. You are recommended to install TinyTeX (which includes XeLaTeX): <https://yihui.name/tinytex/>.
-
-```{r include=FALSE}
-# automatically create a bib database for R packages
-knitr::write_bib(c(
-  .packages(), 'bookdown', 'knitr', 'rmarkdown'
-), 'packages.bib')
-```
+## Acknowledgments {-}

@@ -1,7 +1,0 @@
-# Skin Transcriptome in Time and Space
-
-## fgsea
-* load data
-* calculate gene-level statistics (rank)
-* create gene set 
-* apply fgsea

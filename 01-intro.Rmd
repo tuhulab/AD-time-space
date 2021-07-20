@@ -1,3 +1,6 @@
 # Introduction {#intro}
 
-## Study design
+```{r}
+
+```
+

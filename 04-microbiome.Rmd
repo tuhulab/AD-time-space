@@ -1,0 +1,61 @@
+# Microbiome
+
+```{r microbiome environment, eval=FALSE}
+install.packages("pacman")
+pacman::p_load(phyloseq, metacoder, pryr, biomformat, RColorBrewer, ggplot2, gplots, Cairo, igraph, BiocParallel, randomForest, metagenomeSeq, MASS, DESeq2, vegan, RJSONIO, ggfortify, pheatmap, xtable, genefilter, data.table, reshape, stringr, ape, grid, gridExtra, splitstackshape, edgeR, globaltest, R.utils, viridis, ggrepel, ppcor, qs)
+devtools::install_github("kylebittinger/qiimer")
+devtools::install_github("joey711/biom")
+devtools::install_github("nick-youngblut/Tax4Fun")
+devtools::install_github("xia-lab/MicrobiomeAnalystR", build = TRUE, build_opts = c("--no-resave-data", "--no-manual"))
+```
+
+```{r microbiome load packages}
+suppressWarnings(library(MicrobiomeAnalystR))
+```
+
+```{r microbiome load data}
+# Initiate the mbSetObj
+mbSet <- Init.mbSetObj()
+
+# Set the analysis type
+mbSet <- SetModuleType(mbSet, "mdp")
+
+# Read in the abundance file, file format is .txt, taxa labels not included in the abundance file,
+mbSet <- Read16SAbundData(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_otu_table.txt", format = "text", taxa_type = "SILVA", ismetafile="T")
+
+# Read in the metadata file
+mbSet <- ReadSampleTable(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_meta_table.txt")
+
+
+# Read in the taxonomy table
+mbSet <- Read16STaxaTable(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_taxa_table.txt")
+
+# Data integrity check
+mbSet <- SanityCheckData(mbSet, filetype="text")
+
+# Create phyloseq object
+mbSet <- CreatePhyloseqObj(mbSet, type="text", taxa_type="SILVA", taxalabel="F")
+
+```
+
+```{r}
+mbSet<-ApplyAbundanceFilter(mbSet, filt.opt="prevalence", count=4, smpl.perc=0.2);
+
+# Low variance filtering, based on the inter-quantile range. Here, variance is calculated using
+# IQR and 10% of the lowest variance features will be removed.
+mbSet<-ApplyVarianceFilter(mbSet, filtopt="iqr", filtPerct=0.1);
+
+mbSet<-PerformNormalization(mbSet, rare.opt="none", scale.opt="colsum", transform.opt="none");
+
+# Option 2: Rarefying to the minimum library size + plotting the rarefraction curves
+mbSet<-PerformNormalization(mbSet, rare.opt="rarewi", scale.opt="colsum", transform.opt="none");
+# mbSet<-PlotRareCurve(mbSet, graphName="rarefraction_curve.png", variable="X")
+```
+
+```{r}
+mbSet<-PlotTaxaAundanceBar(mbSet, "taxa_alpha_1","Genus","Group", "none", "barraw",10, "set3","sum",10, "bottom", "F", "png");
+
+# Stacked area plot, class level, viridis color palette
+mbSet<-PlotTaxaAbundanceArea(mbSet, "taxa_alpha_3","overview","Genus","Group", 10, "viridis","sum",10,"bottom", "F", "png");
+```
+

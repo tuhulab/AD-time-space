@@ -15,6 +15,7 @@ library(ComplexHeatmap)
 library(DT)
 library(BiocParallel)
 library(DESeq2)
+library(enrichR)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 ```
 
@@ -55,6 +56,22 @@ extensive_meta <-
 
 ```{r SummarizedExperiment}
 
+# revised biopsy area by Tanja
+revised_biopsy_area <- 
+  readr::read_csv("../multiomics-ad-transcriptomics/data/tanja_replicate_location.csv") %>% 
+  mutate(biopsy_area = biopsy_area %>% str_replace_all(" ", "_"))
+
+# revise space infomation
+biopsy_area <- 
+  extensive_meta %>% 
+  select(BAM_ID, biopsy_area_old = biopsy_area) %>% 
+  left_join(revised_biopsy_area %>% select(BAM_ID, biopsy_area)) %>% 
+  mutate(biopsy_area = ifelse(is.na(biopsy_area), biopsy_area_old, biopsy_area)) %>% 
+  mutate(biopsy_area = ifelse(biopsy_area == "læg", "leg", biopsy_area)) %>% 
+  select(-biopsy_area_old) %>% 
+  add_case(BAM_ID = "NG-23830_01_AD_07_BI_LS_01_E9_lib390881_6751_1.bam",
+           biopsy_area = "arm")
+
 # se col_data
 col_data <-
   tibble(
@@ -74,7 +91,8 @@ col_data <-
     left_join(clinical_records %>% select(JOIN_ID, scorad, scorad_objective, easi_total_score, date_visit)) %>% 
     select(-JOIN_ID) %>% 
     mutate(gender = gender %>% forcats::fct_relevel(c("female", "male"))) %>% 
-    left_join(extensive_meta %>% select(BAM_ID, rna_quality, visit_quarter))
+    left_join(extensive_meta %>% select(BAM_ID, rna_quality, visit_quarter)) %>% 
+    left_join(biopsy_area)
 
 # Summarized Experiment--------------------
 se <- SummarizedExperiment::SummarizedExperiment(
@@ -84,7 +102,7 @@ se <- SummarizedExperiment::SummarizedExperiment(
 names(se) <- counttable_LibMerged$Geneid
 ```
 
-```{r filtering, cache=TRUE}
+```{r filtering}
 # filter out genes 
 se <- se %>% keep_abundant(factor_of_interest = skin_type) %>% scale_abundance()
 
@@ -148,7 +166,7 @@ exclude_BAM <-
   filter(exclude == TRUE) %>% pull(BAM_ID)
 ```
 
-```{r generate new se, cache = TRUE}
+```{r generate new se}
 se <- se[, !se$BAM_ID %in% exclude_BAM]
 ```
 
@@ -448,30 +466,40 @@ heatmap_de_model(de_t_NLvsNN_m)
 ```{r examples-time-effect}
 SPAAR <- plotCounts(de_t_LSvsNL_m, 
                     gene = "SPAAR", 
-                    c("skin_type", "visit"), returnData = TRUE)
+                    c("skin_type", "visit"), returnData = TRUE)  %>% 
+  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NL")))
 
 SPAAR %>% 
   ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
   geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10()
+  scale_y_log10() +
+  ggtitle("SPAAR (Small Regulatory Polypeptide Of Amino Acid Response)") +
+  theme_classic()
 
 KRT27 <- plotCounts(de_t_LSvsNN_m, 
                     gene = "KRT27", 
-                    c("skin_type", "visit"), returnData = TRUE)
+                    c("skin_type", "visit"), returnData = TRUE)  %>% 
+  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
+
 
 KRT27 %>% 
   ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
   geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10()
+  scale_y_log10() +
+  ggtitle("KRT27") +
+  theme_classic()
 
 KRT9 <- plotCounts(de_t_LSvsNN_m, 
                     gene = "KRT9", 
-                    c("skin_type", "visit"), returnData = TRUE)
+                    c("skin_type", "visit"), returnData = TRUE)  %>% 
+  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
 
 KRT9 %>% 
   ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
   geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10()
+  scale_y_log10() +
+  ggtitle("KRT9") +
+  theme_classic()
 ```
 
 ```{r model time(quarter), cache=TRUE}
@@ -532,11 +560,115 @@ heatmap_de_model(de_q_LSvsNN_m)
 heatmap_de_model(de_q_NLvsNN_m)
 ```
 
+#### Over-representation analysis
+```{r over-representation of time effect}
+setEnrichrSite("Enrichr")
+dbs <- c("GO_Molecular_Function_2021", 
+         "GO_Cellular_Component_2021", 
+         "GO_Biological_Process_2021",
+         "KEGG_2021_Human", 
+         "WikiPathway_2021_Human", 
+         "Reactome_2016")
+
+enriched <- 
+  enrichr(de_q_c_res %>% filter(contrast == "LSvsNN_q") %>% pull(gene_name), dbs)
+
+enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
+
+# de_t_c_res %>% filter(contrast == "LSvsNN_v") %>% pull(gene_name) 
+```
+
 
 ### Space effect
 
-## Gene Set Analysis
+```{r biopsy_area barplot, eval=FALSE}
+se %>% colData() %>% as_tibble() %>% 
+  ggplot(aes(biopsy_area, fill = skin_type)) + 
+  geom_bar() + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.7))
+```
 
+```{r consolidate biopsy_area}
+se_space <- se
+
+# consolidate biopsy_area info
+colData(se_space)$biopsy_area <- colData(se)$biopsy_area %>% 
+  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
+
+#
+se_space %>% colData() %>% as_tibble() %>% 
+  ggplot(aes(biopsy_area, fill = skin_type)) + 
+  geom_bar() + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.7))
+```
+
+```{r vp_biopsy_area}
+se_space_500 <- se_space %>% keep_variable()
+vp_space_500 <- variancePartition::fitExtractVarPartModel(
+    assay(se_space_500, 2), 
+    ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender) + (1|biopsy_area), 
+    colData(se_space_500) %>% as_tibble()
+    )
+```
+
+```{r vp_biopsy_area_vis}
+variancePartition::plotVarPart(vp_space_500)
+```
+
+
+```{r}
+top10_space_g <- 
+  vp_space_500 %>% as_data_frame() %>% 
+  mutate(gene_name = se_space_500 %>% rownames()) %>% 
+  slice_max(biopsy_area, n = 10) %>% pull(gene_name)
+
+```
+
+```{r}
+top10_space <- se_space_500 %>% filter(feature %in% top10_space_g)
+top10_space %>% 
+  ggplot(aes(biopsy_area, counts_scaled)) + geom_point() + geom_boxplot() +
+  facet_wrap(~feature, scales = "free")
+```
+
+```{r DGE spcace}
+se_s_LSvsNL <- se_space %>% filter(skin_type %in% c("LS", "NL"))
+de_s_LSvsNL <- DESeq2::DESeqDataSet(se_s_LSvsNL, ~ subject + visit + skin_type + skin_type * visit + biopsy_area)
+de_s_LSvsNL_m <- DESeq2::DESeq(de_s_LSvsNL, parallel = TRUE)
+
+de_s_LSvsNL_legvsarm_res <- 
+  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
+  DESeq2::results(de_s_LSvsNL_m, name = "biopsy_area_leg_vs_arm") %>% as_tibble())
+
+biopsy_area_contrast <-
+  resultsNames(de_s_LSvsNL_m) %>% 
+  str_extract("biopsy_area_[:graph:]{1,}") %>% 
+  purrr::discard(is.na)
+
+register(MulticoreParam(parallel::detectCores() - 1))
+
+biopsy_area_results <- 
+  lapply(biopsy_area_contrast, function(x){
+  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
+  lfcShrink(de_s_LSvsNL_m, 
+            coef = x, 
+            parallel = TRUE) %>% as_tibble() %>% 
+    mutate(contrast = x))
+}) %>% purrr::map_dfr(~.x) %>% filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  mutate(contrast = contrast %>% str_remove("biopsy_area_"))
+```
+
+
+#### Bioreplicate
+
+```{r bioreplicate}
+
+```
+
+
+## Gene Set Analysis
 ```{r save data, eval=FALSE}
 ls_gsa <- as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)") %>% lapply(get))
 names(ls_gsa) <- ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)")

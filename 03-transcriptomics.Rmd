@@ -274,9 +274,9 @@ ComplexHeatmap::Heatmap(heatmap_data_m,
 
 At the baseline, the number of dysregulated genes are:
 
-* `LSvsNL`: `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_up")` up-regulated and r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_down") down-regulated;
-* `LSvsNN`: r r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_up") up-regulated and r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_down") down-regulated
-* `NLvsNN`: `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_up") up-regulated and r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_down") down-regulated
+* `LSvsNL`: `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_down")` down-regulated;
+* `LSvsNN`: `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_down")` down-regulated
+* `NLvsNN`: `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_down")` down-regulated
 
 ```{r pri-DGE-cleaning}
 # cleaning
@@ -362,6 +362,7 @@ I performed `Likelihood Ratio Test (LRT)` to test the genes react in the **condi
 
 I first fit a `full model` (`~ subject + time + tissue_type + tissue_type * time`), then a `reduced model` (`~ subject + time + tissue_type`) by imposing `tissue_type * time` as the constraint. 
 
+#### Visit as time
 ```{r model time (visit), cache=TRUE}
 
 # clean the environment for parallel 
@@ -413,7 +414,7 @@ de_t_c_res <-
   bind_rows(de_t_LSvsNL_res %>% mutate(contrast = "LSvsNL_v"),
             de_t_LSvsNN_res %>% mutate(contrast = "LSvsNN_v"),
             de_t_NLvsNN_res %>% mutate(contrast = "NLvsNN_v")) %>% 
-  filter(padj < .05)
+  filter(padj < .05, abs(log2FoldChange) > 1)
 
 de_t_c_res_s <-
   de_t_c_res %>% 
@@ -502,6 +503,8 @@ KRT9 %>%
   theme_classic()
 ```
 
+#### Quarter as time
+
 ```{r model time(quarter), cache=TRUE}
 se <- se[, - which(is.na(se$visit_quarter))]
 se_q_LSvsNL <- se[, se$skin_type %in% c("LS", "NL")]
@@ -545,7 +548,7 @@ de_q_c_res <-
   bind_rows(de_q_LSvsNL_res %>% mutate(contrast = "LSvsNL_q"),
             de_q_LSvsNN_res %>% mutate(contrast = "LSvsNN_q"),
             de_q_NLvsNN_res %>% mutate(contrast = "NLvsNN_q")) %>% 
-  filter(padj < .05)
+  filter(padj < .05, abs(log2FoldChange) > 1)
 
 de_q_c_res_s <-
   de_q_c_res %>% 
@@ -581,7 +584,7 @@ enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 
 ### Space effect
 
-```{r biopsy_area barplot, eval=FALSE}
+```{r biopsy_area barplot}
 se %>% colData() %>% as_tibble() %>% 
   ggplot(aes(biopsy_area, fill = skin_type)) + 
   geom_bar() + 
@@ -633,7 +636,7 @@ top10_space %>%
   facet_wrap(~feature, scales = "free")
 ```
 
-```{r DGE spcace}
+```{r DGE spcace, cache=TRUE}
 se_s_LSvsNL <- se_space %>% filter(skin_type %in% c("LS", "NL"))
 de_s_LSvsNL <- DESeq2::DESeqDataSet(se_s_LSvsNL, ~ subject + visit + skin_type + skin_type * visit + biopsy_area)
 de_s_LSvsNL_m <- DESeq2::DESeq(de_s_LSvsNL, parallel = TRUE)
@@ -658,6 +661,11 @@ biopsy_area_results <-
     mutate(contrast = x))
 }) %>% purrr::map_dfr(~.x) %>% filter(padj < .05, abs(log2FoldChange) > 1) %>% 
   mutate(contrast = contrast %>% str_remove("biopsy_area_"))
+```
+
+
+```{r}
+biopsy_area_results
 ```
 
 

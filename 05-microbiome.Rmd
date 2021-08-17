@@ -9,11 +9,11 @@ devtools::install_github("nick-youngblut/Tax4Fun")
 devtools::install_github("xia-lab/MicrobiomeAnalystR", build = TRUE, build_opts = c("--no-resave-data", "--no-manual"))
 ```
 
-```{r microbiome load packages}
+```{r microbiome load packages, eval=FALSE}
 suppressWarnings(library(MicrobiomeAnalystR))
 ```
 
-```{r microbiome load data}
+```{r microbiome load data, eval=FALSE}
 # Initiate the mbSetObj
 mbSet <- Init.mbSetObj()
 
@@ -38,7 +38,7 @@ mbSet <- CreatePhyloseqObj(mbSet, type="text", taxa_type="SILVA", taxalabel="F")
 
 ```
 
-```{r}
+```{r eval=FALSE}
 mbSet<-ApplyAbundanceFilter(mbSet, filt.opt="prevalence", count=4, smpl.perc=0.2);
 
 # Low variance filtering, based on the inter-quantile range. Here, variance is calculated using
@@ -52,7 +52,7 @@ mbSet<-PerformNormalization(mbSet, rare.opt="rarewi", scale.opt="colsum", transf
 # mbSet<-PlotRareCurve(mbSet, graphName="rarefraction_curve.png", variable="X")
 ```
 
-```{r}
+```{r eval=FALSE}
 mbSet<-PlotTaxaAundanceBar(mbSet, "taxa_alpha_1","Genus","Group", "none", "barraw",10, "set3","sum",10, "bottom", "F", "png");
 
 # Stacked area plot, class level, viridis color palette

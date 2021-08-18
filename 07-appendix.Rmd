@@ -1,12 +1,7 @@
----
-title: "07-Appendix"
-author: "Tu Hu"
-date: "7/19/2021"
-output: html_document
----
+# Appendix
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = TRUE)
 ```
 
 ## QC and Data Curation

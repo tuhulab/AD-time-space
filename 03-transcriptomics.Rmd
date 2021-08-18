@@ -354,7 +354,7 @@ datatable(de_v1_c_d,
   formatSignif(de_v1_c_d %>% colnames %>% str_extract("padj_\\w{6}") %>% purrr::discard(is.na), digits = 3)
 ```
 
-### Time Effect
+## Time Effect
 
 I performed `Likelihood Ratio Test (LRT)` to test the genes react in the **condition-specific manner over time**, compared to baseline samples. 
 
@@ -362,7 +362,7 @@ I performed `Likelihood Ratio Test (LRT)` to test the genes react in the **condi
 
 I first fit a `full model` (`~ subject + time + tissue_type + tissue_type * time`), then a `reduced model` (`~ subject + time + tissue_type`) by imposing `tissue_type * time` as the constraint. 
 
-#### Visit as time
+### Visit as time
 ```{r model time (visit), cache=TRUE}
 
 # clean the environment for parallel 
@@ -503,7 +503,7 @@ KRT9 %>%
   theme_classic()
 ```
 
-#### Quarter as time
+### Quarter as time
 
 ```{r model time(quarter), cache=TRUE}
 se <- se[, - which(is.na(se$visit_quarter))]
@@ -563,7 +563,7 @@ heatmap_de_model(de_q_LSvsNN_m)
 heatmap_de_model(de_q_NLvsNN_m)
 ```
 
-#### Over-representation analysis
+### Over-representation analysis
 ```{r over-representation of time effect}
 setEnrichrSite("Enrichr")
 dbs <- c("GO_Molecular_Function_2021", 
@@ -582,14 +582,17 @@ enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 ```
 
 
-### Space effect
+## Space effect
+
+### Consolidating biopsy area
 
 ```{r biopsy_area barplot}
 se %>% colData() %>% as_tibble() %>% 
   ggplot(aes(biopsy_area, fill = skin_type)) + 
   geom_bar() + 
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.7))
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  ggtitle("Biopsy area before consolidating")
 ```
 
 ```{r consolidate biopsy_area}
@@ -604,9 +607,11 @@ se_space %>% colData() %>% as_tibble() %>%
   ggplot(aes(biopsy_area, fill = skin_type)) + 
   geom_bar() + 
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.7))
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  ggtitle("Biopsy area after consolidating")
 ```
 
+### Variance Partition
 ```{r vp_biopsy_area}
 se_space_500 <- se_space %>% keep_variable()
 vp_space_500 <- variancePartition::fitExtractVarPartModel(
@@ -620,7 +625,6 @@ vp_space_500 <- variancePartition::fitExtractVarPartModel(
 variancePartition::plotVarPart(vp_space_500)
 ```
 
-
 ```{r}
 top10_space_g <- 
   vp_space_500 %>% as_data_frame() %>% 
@@ -633,8 +637,11 @@ top10_space_g <-
 top10_space <- se_space_500 %>% filter(feature %in% top10_space_g)
 top10_space %>% 
   ggplot(aes(biopsy_area, counts_scaled)) + geom_point() + geom_boxplot() +
-  facet_wrap(~feature, scales = "free")
+  facet_wrap(~feature, scales = "free") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+### Differential Gene Expression Analysis
 
 ```{r DGE spcace, cache=TRUE}
 se_s_LSvsNL <- se_space %>% filter(skin_type %in% c("LS", "NL"))
@@ -664,8 +671,11 @@ biopsy_area_results <-
 ```
 
 
-```{r}
-biopsy_area_results
+```{r DGE space - DT vis}
+biopsy_area_results %>% 
+  datatable() %>% 
+  formatRound(2:4) %>% 
+  formatSignif(5:6)
 ```
 
 

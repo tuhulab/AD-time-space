@@ -22,8 +22,7 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 ```{r load data}
 # read raw counts ---------------------------------------
 counts <-
-  gzfile("../multiomics-ad-transcriptomics/data/counts/counts_gene_name_redo.txt.gz") %>%
-  readr::read_tsv(skip = 1) %>%
+  data.table::fread("../multiomics-ad-transcriptomics/data/counts/counts_gene_name_redo.txt.gz") %>% 
   mutate(Chr = Chr %>% str_extract("chr\\w{1,}(?=;)|chr\\w{1,}$"), #keeps only 1
          Strand = Strand %>% str_extract("\\+|\\-"),               #keeps only 1
          Start = Start %>% str_extract("\\d{1,}(?=;)|\\d{1,}$"),   #keeps only 1
@@ -774,18 +773,28 @@ plotGseaTable(gobp_list[topPathways], rank_log2fc_padj, fgseaRes_gobp,
 
 ## Cell Type Deconvolution
 ```{r cibersort, cache=TRUE}
-se_deconvolute <- 
-  se %>% deconvolve_cellularity(prefix="cibersort_", cores = 7)
+cibersort <- 
+  readr::read_csv("../cibersortx-deconvolute/data/multiomics-ad/emmaguttman_all_multiomics_ad.csv")[,1:11]
 
-se_deconvolute_l <-
-  se_deconvolute %>% 
-  pivot_sample() %>%
-  pivot_longer(
-    contains("cibersort"),
-    names_prefix = "cibersort_",
-    names_to = "cell_type",
-    values_to = "proportion"
-  )
+cibersort_stat <- 
+  cibersort %>% 
+  pivot_longer(cols = !Mixture, names_to = "cell_type", values_to = "Percentage") %>% 
+  mutate(skin_type = Mixture %>% str_extract("LS|NL|NN"),
+         Percentage = Percentage * 100) %>% 
+  group_by(cell_type, skin_type) %>% 
+  summarize(mean_per = mean(Percentage))
+
+cibersort_stat %>% 
+  ggplot(aes(x = skin_type, y = mean_per, fill = cell_type)) +
+  geom_bar(stat = "identity", width = .8) + 
+  theme_classic() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 7)) +
+  coord_flip() +
+  ggsci::scale_fill_npg() +
+  xlab("Tissue type") +
+  ylab("Percent")
 ```
 
 ```{r cibersort-vis}

@@ -16,6 +16,7 @@ library(DT)
 library(BiocParallel)
 library(DESeq2)
 library(enrichR)
+library(ggpubr)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 ```
 
@@ -772,68 +773,104 @@ plotGseaTable(gobp_list[topPathways], rank_log2fc_padj, fgseaRes_gobp,
 
 
 ## Cell Type Deconvolution
-```{r cibersort, cache=TRUE}
-cibersort <- 
-  readr::read_csv("../cibersortx-deconvolute/data/multiomics-ad/emmaguttman_all_multiomics_ad.csv")[,1:11]
+```{r MuSic}
+library(MuSiC)
+library(Biobase)
+library(convert)
 
-cibersort_stat <- 
-  cibersort %>% 
-  pivot_longer(cols = !Mixture, names_to = "cell_type", values_to = "Percentage") %>% 
-  mutate(skin_type = Mixture %>% str_extract("LS|NL|NN"),
-         Percentage = Percentage * 100) %>% 
-  group_by(cell_type, skin_type) %>% 
-  summarize(mean_per = mean(Percentage))
+# Construct ExpressionSet for bulk RNA-seq
 
-cibersort_stat %>% 
-  ggplot(aes(x = skin_type, y = mean_per, fill = cell_type)) +
-  geom_bar(stat = "identity", width = .8) + 
-  theme_classic() +
-  theme(legend.position = "bottom", 
-        legend.title = element_blank(), 
-        legend.text = element_text(size = 7)) +
-  coord_flip() +
-  ggsci::scale_fill_npg() +
-  xlab("Tissue type") +
-  ylab("Percent")
-```
+se_scaled <- se
+# se_scaled <- 
+assay(se_scaled) <- NULL
 
-```{r cibersort-vis}
+multiomics <- 
+  as(se_scaled, "ExpressionSet")
 
-friendly_cols <- dittoSeq::dittoColors()
 
-custom_theme <-
-  list(
-    scale_fill_manual(values = friendly_cols),
-    scale_color_manual(values = friendly_cols),
-    theme_bw() +
-      theme(
-        panel.border = element_blank(),
-        axis.line = element_line(),
-        panel.grid.major = element_line(size = 0.2),
-        panel.grid.minor = element_line(size = 0.1),
-        text = element_text(size = 12),
-        legend.position = "bottom",
-        strip.background = element_blank(),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1)
-      )
+
+# Construct ExpressionSet for scRNA-seq
+emma_guttman <- readRDS(
+  url("https://gitcdn.link/repo/tuhulab/cell-type-deconvolute/main/data/emma-gutmann/ExpressionSet.rds")
   )
 
-se_deconvolute_l %>%
-  mutate(cell_type = cell_type %>% str_remove("cibersort..")) %>%
-  ggplot(aes(x = sample, y = proportion, fill = cell_type)) +
-  geom_bar(stat = "identity") +
-  facet_wrap(~skin_type, scales = "free") +
-  custom_theme + theme(axis.text.x = element_blank())
+multiomics_music <- music_prop(bulk.eset = multiomics, sc.eset = emma_guttman,
+                               clusters = "cell_type", samples = "sample_name")
 
-# se_deconvolute_l %>% 
-#   mutate(cell_type = cell_type %>% str_remove("cibersort..")) %>%
-#   filter(subject == "AD_02") %>% 
-#   ggplot(aes(x = sample, y = proportion, fill = cell_type)) +
-#   geom_bar(stat = "identity") +
-#   facet_wrap(visit~skin_type, scales = "free") +
-#   custom_theme + theme(axis.text.x = element_blank())
+
+multiomics_results <-
+  data.matrix(multiomics_music$Est.prop.weighted) %>% 
+  as.data.frame() %>% rownames_to_column("BAM_ID") %>% 
+  pivot_longer(!BAM_ID, names_to = "cell_type", values_to = "prop") %>% 
+  left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
+
+cell_type_rank <- 
+  multiomics_results %>% group_by(cell_type) %>% 
+  summarize(mean_prop = mean(prop)) %>% arrange(-mean_prop) %>% pull(cell_type)
+
+exclude_low_KRT <-
+  multiomics_results %>% 
+  filter(cell_type == "Keratinocytes", prop < .11) %>% pull(BAM_ID)
+
+multiomics_results <-
+  multiomics_results %>% filter(!BAM_ID %in% exclude_low_KRT) %>% 
+  mutate(cell_type = forcats::fct_relevel(cell_type, cell_type_rank),
+         prop = prop * 100)
+
+deconvolution_vis_group <- 
+  multiomics_results %>% 
+  ggplot(aes(skin_type, prop, color = skin_type)) +
+  geom_jitter(width = .1) +
+  geom_boxplot(alpha = .4) +
+  facet_wrap(~cell_type, scales = "free") +
+  theme_classic() +
+  ggpubr::color_palette("jco")
+
+deconvolution_vis_group
+```
+
+```{r appendix, eval=FALSE}
+multiomics_results_sample <- 
+  multiomics_results %>%
+  mutate(plot_name = paste(subject, visit, skin_type, replicate_ID, sep = "_"))
+
+multiomics_results_sample_count <-
+  multiomics_results_sample$plot_name %>% table
+
+multiomics_results_sample <-
+  multiomics_results_sample %>% 
+  filter(plot_name %in% names(which(multiomics_results_sample_count == 10)))
+
+multiomics_results_vis_sample <- 
+  multiomics_results_sample %>%  # filter(subject %in% c("AD_16", "CO_33")) %>% 
+  arrange(plot_name) %>% 
+  ggbarplot(x = "plot_name", y = "prop", fill = "cell_type", 
+            xlab = "Sample", ylab = "Proportion(%)", palette = "npg") %>% 
+  facet(facet.by = "subject", scales = "free") %>% 
+  ggpar(xtickslab.rt = 90, font.tickslab = 6)
+
+pdf("figure/deconvolution_sample.pdf", height = 16.5 * 1.5, width = 11.7)
+multiomics_results_vis_sample
+dev.off()
+```
+
+
+```{r two samples}
+multiomics_results_twosamples <- 
+  multiomics_results %>%
+  filter(subject %in% c("AD_16", "CO_33")) %>% 
+  ggbarplot(x = "replicate_ID", y = "prop", fill = "cell_type", 
+            facet.by = c("skin_type", "visit"),
+            panel.labs = list(visit = c("Visit 1", "Visit 2", "Visit 3", "Visit 4", "Visit 5"), skin_type = c("CO33-NN", "AD16-NL", "AD16-LS")),
+            xlab = "Replicate", ylab = "Proportion(%)") +
+  fill_palette("npg")
+
+multiomics_results_twosamples %>% 
+  ggpar(legend = "bottom", 
+        legend.title = "Cell type",
+        font.legend = 7, 
+        font.tickslab = 6, 
+        main = "Cell Deconvolution for two examples (subject AD_16 and CO_33)")
 ```
 
 

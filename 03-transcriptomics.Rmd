@@ -861,7 +861,8 @@ multiomics_results_twosamples <-
   filter(subject %in% c("AD_16", "CO_33")) %>% 
   ggbarplot(x = "replicate_ID", y = "prop", fill = "cell_type", 
             facet.by = c("skin_type", "visit"),
-            panel.labs = list(visit = c("Visit 1", "Visit 2", "Visit 3", "Visit 4", "Visit 5"), skin_type = c("CO33-NN", "AD16-NL", "AD16-LS")),
+            panel.labs = list(visit = c("Visit 1", "Visit 2", "Visit 3", "Visit 4", "Visit 5"), 
+                              skin_type = c("CO33-NN", "AD16-NL", "AD16-LS")),
             xlab = "Replicate", ylab = "Proportion(%)") +
   fill_palette("npg")
 
@@ -870,8 +871,17 @@ multiomics_results_twosamples %>%
         legend.title = "Cell type",
         font.legend = 7, 
         font.tickslab = 6, 
-        main = "Cell Deconvolution for two examples (subject AD_16 and CO_33)")
+        main = "Cell Deconvolution for two examples (subject AD_16 and CO_33)",
+        rotate = TRUE)
 ```
+
+## Hair
+```{r}
+TL_KRTAP_gene <- 
+  readxl::read_excel("/Users/tuhu/Downloads/KRTAP_cross_annotation_v2.xlsx") %>% 
+  
+```
+
 
 
 ## Varian Partition (to work)

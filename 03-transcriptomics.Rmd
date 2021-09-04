@@ -147,15 +147,15 @@ colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
 
 
 ```{r Sample QC}
-library(googledrive)
-library(googlesheets4)
-gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
-sample_qc_record_url <- 
-  googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
-  filter(name == "sample_qc_record") %>% 
-  pull(id)
+# library(googledrive)
+# library(googlesheets4)
+# gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
+# sample_qc_record_url <- 
+#   googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
+#   filter(name == "sample_qc_record") %>% 
+#   pull(id)
 sample_qc_record_edited <-
-  googlesheets4::read_sheet(ss = sample_qc_record_url)
+  readr::read_csv("data/sample_qc_record - sample_qc_record.csv")
 ```
 
 ```{r exclude}
@@ -281,7 +281,7 @@ At the baseline, the number of dysregulated genes are:
 ```{r pri-DGE-cleaning}
 # cleaning
 rm(list = ls()[ls() != "se"])
-register(MulticoreParam(7))
+# register(MulticoreParam(20))
 ```
 
 
@@ -289,22 +289,32 @@ register(MulticoreParam(7))
 
 # V1 LSvsNL --------------------
 se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
-de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type)
+de_v1_LSvsNL <- DESeq2::DESeq(de_v1_LSvsNL, parallel = TRUE)
+
+
 de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
 de_v1_LSvsNL_result <- bind_cols(tibble(gene_name = rownames(se_v1_LSvsNL)), de_v1_LSvsNL_LFC %>% as_tibble())
 de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # V1 LSvsNN --------------------
 se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
-de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
+de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
+
 de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
 de_v1_LSvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_LSvsNN)), de_v1_LSvsNN_LFC %>% as_tibble())
 de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # V1 LSvsNN --------------------
 se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
-de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) %>% DESeq2::DESeq(parallel = TRUE)
+de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
+de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
+
 de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
 de_v1_NLvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_NLvsNN)), de_v1_NLvsNN_LFC %>% as_tibble())
 de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # Consolidate the results -----
 de_v1_c <-
   bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
@@ -374,7 +384,7 @@ de_t_LSvsNL <- DESeq2::DESeqDataSet(se_t_LSvsNL, ~ subject + visit + skin_type +
 
 de_t_LSvsNL_m <- DESeq2::DESeq(de_t_LSvsNL, test="LRT", 
                               reduced = ~  subject + visit + skin_type,
-                              parallel = TRUE)
+                              parallel = TRUE) # takes very long time to run
 
 de_t_LSvsNL_res <- 
   bind_cols(tibble(gene_name = names(de_t_LSvsNL_m)),

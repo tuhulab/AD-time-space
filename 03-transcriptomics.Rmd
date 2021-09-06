@@ -259,13 +259,20 @@ assay(heatmap_data) <-
 heatmap_data_m <- heatmap_data %>% assay()
 
 heatmap_annotation <- 
-  HeatmapAnnotation(`tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type))
-
-ComplexHeatmap::Heatmap(heatmap_data_m, 
+  HeatmapAnnotation(
+    `Tissue type` = 
+      colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
+    annotation_legend_param = list(
+      `Tissue type` = list(nrow = 1, legend_gp = RColorBrewer::brewer.pal(3, "Set2"))))
+  
+heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m, 
                         name = "log(gene expression)",
                         show_column_names = FALSE,
-                        row_names_gp = gpar(fontsize = min(12, 400 / dim(heatmap_data_m)[1])),
-                        top_annotation = heatmap_annotation)
+                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(heatmap_data_m)[1])),
+                        top_annotation = heatmap_annotation, 
+                        heatmap_legend_param = list(direction = "horizontal"))
+draw(heatmap, heatmap_legend_side = "bottom", 
+     annotation_legend_side = "bottom", merge_legend = TRUE)
 ```
 
 ## Differential gene expression (DGE) analysis

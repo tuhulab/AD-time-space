@@ -102,9 +102,17 @@ se <- SummarizedExperiment::SummarizedExperiment(
 names(se) <- counttable_LibMerged$Geneid
 ```
 
+```{r KRTAP}
+se_KRTAP <- se %>% scale_abundance()
+KRTAP_index <- se_KRTAP %>% rownames() %>% str_detect("KRTAP")
+se_KRTAP <- se_KRTAP[KRTAP_index,]
+```
+
 ```{r filtering}
 # filter out genes 
-se <- se %>% keep_abundant(factor_of_interest = skin_type) %>% scale_abundance()
+se <- se %>% 
+  keep_abundant(factor_of_interest = skin_type) %>% 
+  scale_abundance()
 
 # filter out samples ----------------
 se <- se[, se$BAM_ID != (assay(se) %>% colSums() %>% which.min %>% names)] # 392
@@ -193,7 +201,7 @@ PCA %>%
 ```
 
 ```{r cleaning}
-rm(list = ls()[ls() != "se"])
+rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
 ```
 
 ### Sample Distance and Similarity
@@ -248,32 +256,80 @@ cosine_df %>%
 
 ### Heatmap
 ```{r heatmap, fig.align='center', dpi = 300}
+se_space <- se
+
+# consolidate biopsy_area info
+colData(se_space)$biopsy_area <- colData(se)$biopsy_area %>% 
+  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
+
 heatmap_data <- 
-  se %>% 
+  se_space %>% 
   keep_variable(.abundance = counts_scale,
                 top = 150)
 
 assay(heatmap_data) <-
   log1p(assay(heatmap_data))
 
+
 heatmap_data_m <- heatmap_data %>% assay()
+
+sample_site_color <- 
+  colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
 
 heatmap_annotation <- 
   HeatmapAnnotation(
-    `Tissue type` = 
-      colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
-    annotation_legend_param = list(
-      `Tissue type` = list(nrow = 1, legend_gp = RColorBrewer::brewer.pal(3, "Set2"))))
-  
+    `Tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
+    `Sampling site` = colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = c("LS" = "#fc8d59", "NL" = "#ffffbf", "NN" = "#91cf60"),
+               `Sampling site` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, grid_height = unit(2, "cm"), 
+                                                        grid_width = unit(1, "cm"), 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Sampling site` = list(nrow = 1, grid_height = unit(2, "cm"), 
+                                                          grid_width = unit(1, "cm"), 
+                                                          title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 16))
+                                   ))
+
+# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
+                                               
 heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m, 
-                        name = "log(gene expression)",
+                                   # cluster_columns = function(m) as.dendrogram(agnes(m)),
+                        name = "log(gene expression)", column_dend_reorder = FALSE,
                         show_column_names = FALSE,
+                        show_row_dend = FALSE,
                         row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(heatmap_data_m)[1])),
                         top_annotation = heatmap_annotation, 
-                        heatmap_legend_param = list(direction = "horizontal"))
-draw(heatmap, heatmap_legend_side = "bottom", 
-     annotation_legend_side = "bottom", merge_legend = TRUE)
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 14),
+                          labels_gp = gpar(fontsize = 12)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right", 
+     annotation_legend_side = "top", merge_legend = FALSE)
+
+
+# png("../multiomics-ad-phd-pres/Rmd/poster_gsiannualmeeting/heatmap.png", width = 480*8*1.5, height = 480*10*1.5, res=300)
+# draw(heatmap, heatmap_legend_side = "right",
+#      annotation_legend_side = "top", merge_legend = FALSE)
+# dev.off()
+
 ```
+
+```{r box plot for IL37, IL22}
+IL22_37 <- se_space %>% filter(feature %in% c("IL22", "IL37"))
+
+IL22_37 %>% as_tibble() %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", scale = "free", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", palette = c("green", "orange", "red"), legend.title = " ",
+            font.legend = c(14))
+```
+
 
 ## Differential gene expression (DGE) analysis
 
@@ -287,8 +343,13 @@ At the baseline, the number of dysregulated genes are:
 
 ```{r pri-DGE-cleaning}
 # cleaning
+<<<<<<< Updated upstream
 rm(list = ls()[ls() != "se"])
 # register(MulticoreParam(20))
+=======
+rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
+register(MulticoreParam(7))
+>>>>>>> Stashed changes
 ```
 
 
@@ -619,6 +680,8 @@ se_space <- se
 colData(se_space)$biopsy_area <- colData(se)$biopsy_area %>% 
   str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
 
+# readr::write_rds(se_space, "data/se_space.rds")
+
 #
 se_space %>% colData() %>% as_tibble() %>% 
   ggplot(aes(biopsy_area, fill = skin_type)) + 
@@ -636,6 +699,8 @@ vp_space_500 <- variancePartition::fitExtractVarPartModel(
     ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender) + (1|biopsy_area), 
     colData(se_space_500) %>% as_tibble()
     )
+# readr::write_rds(se_space_500, "data/se_space_500.rds")
+# readr::write_rds(vp_space_500, "data/vp_space_500.rds")
 ```
 
 ```{r vp_biopsy_area_vis}
@@ -866,9 +931,9 @@ multiomics_results_vis_sample <-
   facet(facet.by = "subject", scales = "free") %>% 
   ggpar(xtickslab.rt = 90, font.tickslab = 6)
 
-pdf("figure/deconvolution_sample.pdf", height = 16.5 * 1.5, width = 11.7)
-multiomics_results_vis_sample
-dev.off()
+# pdf("figure/deconvolution_sample.pdf", height = 16.5 * 1.5, width = 11.7)
+# multiomics_results_vis_sample
+# dev.off()
 ```
 
 
@@ -883,22 +948,65 @@ multiomics_results_twosamples <-
             xlab = "Replicate", ylab = "Proportion(%)") +
   fill_palette("npg")
 
-multiomics_results_twosamples %>% 
+multiomics_results_vis_two_sample <- 
+  multiomics_results_twosamples %>% 
   ggpar(legend = "bottom", 
         legend.title = "Cell type",
         font.legend = 7, 
         font.tickslab = 6, 
         main = "Cell Deconvolution for two examples (subject AD_16 and CO_33)",
         rotate = TRUE)
+
+
+multiomics_results_vis_two_sample
+
 ```
 
 ## Hair
 ```{r}
-TL_KRTAP_gene <- 
-  readxl::read_excel("/Users/tuhu/Downloads/KRTAP_cross_annotation_v2.xlsx") %>% 
-  
+# TL_KRTAP_gene <- 
+#   readxl::read_excel("/Users/tuhu/Downloads/KRTAP_cross_annotation_v2.xlsx") %>% 
+#   filter(`Gene name...1` %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4"))
+
+KRTAP_hair <-
+  se_KRTAP %>% filter(feature %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4")) %>% 
+  group_by(feature) %>% summarise(mean_expr = mean(counts), sd_expr = sd(counts)) %>% 
+  mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
+
+se_KRTAP_filt <- 
+  se_KRTAP %>% 
+  filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
+
+se_KRTAP_filt %>% 
+  ggplot(aes(gender, log2(counts_scaled))) +
+  geom_point() +
+  geom_boxplot() +
+  facet_wrap(~feature)
+
 ```
 
+```{r KRTAP correlation}
+se_KRTAP_filt %>% assay(2) %>% t() %>% 
+  coop::pcor()
+```
+
+```{r}
+
+se_KRTAP_sgc <- 
+  se_KRTAP_filt %>% left_join(
+  multiomics_results %>% 
+  filter(cell_type == "Sweat_gland_cells") %>% 
+  select(BAM_ID, prop) %>% 
+  rename(Sweat_gland_cells = prop)) %>% 
+  filter(!is.na(Sweat_gland_cells))
+
+se_KRTAP_sgc %>% assay(2) %>% 
+  rbind(sgc = se_KRTAP_sgc$Sweat_gland_cells)  %>% 
+  t() %>% 
+  coop::pcor()
+
+
+```
 
 
 ## Varian Partition (to work)
@@ -930,20 +1038,13 @@ vp_core <- variancePartition::fitExtractVarPartModel(
     ~ (1|skin_type) + (1|subject) + (1|visit_quarter) + (1|gender), 
     colData(se_core) %>% as_tibble()
     )
+# readr::write_rds(se_core, "data/se_core.rds")
+# readr::write_rds(vp_core, "data/vp_core.rds")
+
 variancePartition::plotVarPart(vp_core)
 
 variancePartition::plotPercentBars(
   head(vp_core[order(vp_core$skin_type, decreasing = TRUE),], 15))
-
-vp_core %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "gene_name") %>% 
-  filter(gene_name %>% str_detect("^IL\\d{1}")) %>% 
-  arrange(-skin_type) %>% 
-  pivot_longer(cols = !gene_name, names_to = "term") %>% 
-  ggplot(aes(gene_name, value, fill = term)) +
-  geom_bar(stat = "identity") +
-  coord_flip()
 
 IL_vp <- vp_core %>% 
   data.frame() %>% 

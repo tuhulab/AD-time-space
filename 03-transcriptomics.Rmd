@@ -155,13 +155,6 @@ colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
 
 
 ```{r Sample QC}
-# library(googledrive)
-# library(googlesheets4)
-# gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
-# sample_qc_record_url <- 
-#   googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
-#   filter(name == "sample_qc_record") %>% 
-#   pull(id)
 sample_qc_record_edited <-
   readr::read_csv("data/sample_qc_record - sample_qc_record.csv")
 ```
@@ -343,13 +336,8 @@ At the baseline, the number of dysregulated genes are:
 
 ```{r pri-DGE-cleaning}
 # cleaning
-<<<<<<< Updated upstream
-rm(list = ls()[ls() != "se"])
-# register(MulticoreParam(20))
-=======
 rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
-register(MulticoreParam(7))
->>>>>>> Stashed changes
+register(MulticoreParam(future::availableCores() - 2))
 ```
 
 

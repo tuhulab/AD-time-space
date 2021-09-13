@@ -7,15 +7,8 @@ knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = TRU
 ## QC and Data Curation
 
 ```{r Sample QC record}
-library(googledrive)
-library(googlesheets4)
-gs4_auth(email = "tu.hu.ucph@gmail.com", token = drive_token())
-sample_qc_record_url <- 
-  googledrive::drive_ls("multiomics-ad-transcriptomics/") %>% 
-  filter(name == "sample_qc_record") %>% 
-  pull(id)
 sample_qc_record_edited <-
-  googlesheets4::read_sheet(ss = sample_qc_record_url)
+  readr::read_csv("data/sample_qc_record - sample_qc_record.csv")
 ```
 
 ```{r QC record - display}

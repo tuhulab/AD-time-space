@@ -1,6 +1,28 @@
 # Skin Transcriptome in Time and Space
 
-## Data cleaning and curation
+## Abstract
+
+## Introduction
+
+## Results
+
+
+
+## Discussion
+
+## Materials and methods
+
+### Study design
+
+### RNA-seq data analysis.
+
+Data cleaning and curation.
+
+## Acknowledgement
+
+Computerome.
+
+
 ```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
 library(tibble)
 library(dplyr)
@@ -178,6 +200,9 @@ PCA <-
   se %>% 
   reduce_dimensions(method = "PCA", top = 350)
 
+pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
+
+# 2d plot
 PCA %>% 
   pivot_sample() %>% 
   ggplot(aes(PC1, PC2, 
@@ -186,12 +211,19 @@ PCA %>%
              subject = subject, visit = visit, 
              skin_type = skin_type, replicate_ID = replicate_ID,
              rna_quality = rna_quality)) + geom_point() +
-  xlab(paste0("PC1 (Var% explained:", summary(attr(PCA, "internals")$PCA)$importance[2,1] %>% scales::percent(), ")")) +
-  ylab(paste0("PC2 (Var% explained:", summary(attr(PCA, "internals")$PCA)$importance[2,2] %>% scales::percent(), ")")) +
-  theme_classic() + 
-  ggsci::scale_color_nejm() +
-  ggtitle("PCA plot")
+  xlab(paste0("PC1 (Var% explained: ", summary(attr(PCA, "internals")$PCA)$importance[2,1] %>% scales::percent(), ")")) +
+  ylab(paste0("PC2 (Var% explained: ", summary(attr(PCA, "internals")$PCA)$importance[2,2] %>% scales::percent(), ")")) +
+  ggplot2::scale_color_manual(values = pca_color) +
+  theme_classic()
 ```
+
+```{r PCA 3d plot, eval=FALSE}
+attr(PCA, "internals")$PCA %>% 
+  pca3d::pca3d(group = PCA$skin_type, col = pca_color, radius = 1.5, shape = "s", show.plane = FALSE)
+rgl::snapshot3d("figure/pca3d.png", fmt="png")
+rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
+```
+
 
 ```{r cleaning}
 rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
@@ -275,7 +307,7 @@ heatmap_annotation <-
   HeatmapAnnotation(
     `Tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
     `Sampling site` = colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area),
-    col = list(`Tissue type` = c("LS" = "#fc8d59", "NL" = "#ffffbf", "NN" = "#91cf60"),
+    col = list(`Tissue type` = pca_color,
                `Sampling site` = color),
     # simple_anno_size = unit(1, "cm"),
     annotation_legend_param = list(`Tissue type` = list(nrow = 1, grid_height = unit(2, "cm"), 
@@ -306,10 +338,10 @@ draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
 
-# png("../multiomics-ad-phd-pres/Rmd/poster_gsiannualmeeting/heatmap.png", width = 480*8*1.5, height = 480*10*1.5, res=300)
-# draw(heatmap, heatmap_legend_side = "right",
-#      annotation_legend_side = "top", merge_legend = FALSE)
-# dev.off()
+png("figure/heatmap.png", width = 480*8*1.5, height = 480*10*1.5, res=300)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
 
 ```
 

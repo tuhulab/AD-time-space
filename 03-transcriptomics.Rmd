@@ -392,6 +392,10 @@ n_de_v1_NLvsNN_up <- de_v1_c_s %>% filter(contrast == "NLvsNN", direction == "up
 n_de_v1_NLvsNN_down <- de_v1_c_s %>% filter(contrast == "NLvsNN", direction == "down") %>% pull(n_dys)
 ```
 
+```{r write out, eval=FALSE}
+de_v1_c %>% readr::write_csv("data/dge_v1_sig.csv")
+```
+
 ```{r Consolidate Results display}
 
 de_v1_c_d <- de_v1_c %>% 

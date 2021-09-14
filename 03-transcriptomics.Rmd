@@ -281,22 +281,32 @@ cosine_df %>%
 
 ### Heatmap
 ```{r heatmap, fig.align='center', dpi = 300}
-se_space <- se
-
+se_heatmap <- se
 # consolidate biopsy_area info
-colData(se_space)$biopsy_area <- colData(se)$biopsy_area %>% 
+colData(se_heatmap)$biopsy_area <- colData(se)$biopsy_area %>% 
   str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
 
+core_genes <- 
+  tibble(gene_name = readr::read_csv("data/dge_v1_sig.csv") %>% 
+  filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
+  pull(gene_name)
+  # mutate(
+  # fam = str_sub(gene_name, end = 4)) %>%
+  # group_by(fam) %>% nest() %>% mutate(data_1 = map(data, ~.x[1,])) %>%
+  # unnest() %>% pull(gene_name1) %>% unique()
+
+se_heatmap <- se_heatmap[core_genes,]
+
 heatmap_data <- 
-  se_space %>% 
+  se_heatmap %>% 
   keep_variable(.abundance = counts_scale,
-                top = 150)
+                top = 50)
 
-assay(heatmap_data) <-
-  log1p(assay(heatmap_data))
+# heatmap_data_m <- heatmap_data %>% assay()
 
-
-heatmap_data_m <- heatmap_data %>% assay()
+heatmap_data_m <-
+  scale(assay(heatmap_data, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
 
 sample_site_color <- 
   colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
@@ -322,23 +332,24 @@ heatmap_annotation <-
 
 # grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
                                                
-heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m, 
-                                   # cluster_columns = function(m) as.dendrogram(agnes(m)),
-                        name = "log(gene expression)", column_dend_reorder = FALSE,
+heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
                         show_column_names = FALSE,
                         show_row_dend = FALSE,
                         row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(heatmap_data_m)[1])),
-                        top_annotation = heatmap_annotation, 
+                        top_annotation = heatmap_annotation,
                         heatmap_legend_param = list(
                           title_gp = gpar(fontsize = 14),
                           labels_gp = gpar(fontsize = 12)
                           ))
 
-draw(heatmap, heatmap_legend_side = "right", 
+draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
-
-png("figure/heatmap.png", width = 480*8*1.5, height = 480*10*1.5, res=300)
+# poster 480*8.1.5 480*10*1.5
+png("figure/heatmap.png", width = 480*8, height = 480*10, res=300)
 draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 dev.off()
@@ -346,7 +357,7 @@ dev.off()
 ```
 
 ```{r box plot for IL37, IL22}
-IL22_37 <- se_space %>% filter(feature %in% c("IL22", "IL37"))
+IL22_37 <- se_heatmap %>% filter(feature %in% c("IL22", "IL37"))
 
 IL22_37 %>% as_tibble() %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
@@ -354,6 +365,12 @@ IL22_37 %>% as_tibble() %>%
             ylab = FALSE, color = "skin_type", palette = c("green", "orange", "red"), legend.title = " ",
             font.legend = c(14))
 ```
+
+```{r combine multiple plots, eval=FALSE}
+
+
+```
+
 
 
 ## Differential gene expression (DGE) analysis

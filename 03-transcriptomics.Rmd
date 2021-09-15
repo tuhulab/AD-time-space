@@ -124,18 +124,7 @@ se <- SummarizedExperiment::SummarizedExperiment(
 names(se) <- counttable_LibMerged$Geneid
 ```
 
-```{r KRTAP}
-se_KRTAP <- se %>% scale_abundance()
-KRTAP_index <- se_KRTAP %>% rownames() %>% str_detect("KRTAP")
-se_KRTAP <- se_KRTAP[KRTAP_index,]
-```
-
 ```{r filtering}
-# filter out genes 
-se <- se %>% 
-  keep_abundant(factor_of_interest = skin_type) %>% 
-  scale_abundance()
-
 # filter out samples ----------------
 se <- se[, se$BAM_ID != (assay(se) %>% colSums() %>% which.min %>% names)] # 392
 se <- se[, !se$library_ID %in% c("lib390174", "lib390716")] # 390
@@ -175,7 +164,6 @@ colData(se)$skin_type[index_ad13v05ls02] <- "NL"
 colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
 ```
 
-
 ```{r Sample QC}
 sample_qc_record_edited <-
   readr::read_csv("data/sample_qc_record - sample_qc_record.csv")
@@ -191,6 +179,104 @@ exclude_BAM <-
 
 ```{r generate new se}
 se <- se[, !se$BAM_ID %in% exclude_BAM]
+
+se_prifilt <- se
+
+# filter out genes 
+se <- se %>% 
+  keep_abundant(factor_of_interest = skin_type) %>% 
+  scale_abundance()
+
+```
+
+## generate KRTAP
+```{r KRTAP}
+se_KRTAP <- se_prifilt %>% 
+  keep_abundant(factor_of_interest = skin_type, minimum_proportion = .1) %>%
+  scale_abundance()
+# KRTAP_index <- se_KRTAP %>% rownames() %>% str_detect("KRTAP5-|KRTAP10-4")
+# se_KRTAP <- se_KRTAP[KRTAP_index,]
+# sum(KRTAP_index)
+```
+
+```{r KRTAP variance}
+se_KRTAP
+
+KRTAP_hair <-
+  se_KRTAP %>% filter(feature %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4")) %>% 
+  group_by(feature) %>% summarise(mean_expr = mean(counts), sd_expr = sd(counts)) %>%   mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
+
+se_KRTAP_filt <- 
+  se_KRTAP %>% 
+  filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
+```
+
+```{r KRTAP correlation}
+se_KRTAP_filt %>% assay(2) %>% t() %>% 
+  cor(method = "pearson")
+```
+```{r}
+se_KRTAP_filt %>% assay(2) %>% t() %>% 
+  cor(method = "spearman")
+```
+
+
+
+
+
+```{r eval=FALSE}
+KRTAP_filt_d <- 
+  se_KRTAP_filt %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
+
+sample_site_color <- 
+  colData(se_KRTAP_filt) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Set3")
+names(color) <- sample_site_color
+
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_KRTAP_filt) %>% as_tibble() %>% pull(skin_type), 
+    `Sampling site` = colData(se_KRTAP_filt) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Sampling site` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1), 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        # title_gp = gpar(fontsize = 16),
+                                                        # labels_gp = gpar(fontsize = 16)),
+                                   `Sampling site` = list(nrow = 2) 
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          # title_gp = gpar(fontsize = 16),
+                                                          # labels_gp = gpar(fontsize = 16))
+                                   ))
+
+# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
+                                               
+heatmap <- ComplexHeatmap::Heatmap(KRTAP_filt_d,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(KRTAP_filt_d)[1])),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          # title_gp = gpar(fontsize = 14),
+                          # labels_gp = gpar(fontsize = 12)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+
+
+png("figure/heatmap_KRTAP.png", width = 480*4.5, height = 480*3, res=300)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+
 ```
 
 ## Explorative data analysis
@@ -201,32 +287,23 @@ PCA <-
   reduce_dimensions(method = "PCA", top = 350)
 
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
-
-# 2d plot
-PCA %>% 
-  pivot_sample() %>% 
-  ggplot(aes(PC1, PC2, 
-             color = skin_type, 
-             scorad = scorad,
-             subject = subject, visit = visit, 
-             skin_type = skin_type, replicate_ID = replicate_ID,
-             rna_quality = rna_quality)) + geom_point() +
-  xlab(paste0("PC1 (Var% explained: ", summary(attr(PCA, "internals")$PCA)$importance[2,1] %>% scales::percent(), ")")) +
-  ylab(paste0("PC2 (Var% explained: ", summary(attr(PCA, "internals")$PCA)$importance[2,2] %>% scales::percent(), ")")) +
-  ggplot2::scale_color_manual(values = pca_color) +
-  theme_classic()
 ```
 
 ```{r PCA 3d plot, eval=FALSE}
 attr(PCA, "internals")$PCA %>% 
-  pca3d::pca3d(group = PCA$skin_type, col = pca_color, radius = 1.5, shape = "s", show.plane = FALSE)
+  pca3d::pca3d(group = PCA$skin_type, col = pca_color, radius = 1.5, 
+               shape = "s", 
+               show.plane = FALSE)
 rgl::snapshot3d("figure/pca3d.png", fmt="png")
 rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
 ```
 
+```{r include PCA 3d plot, dpi=300}
+knitr::include_graphics("figure/pca3d.png")
+```
 
 ```{r cleaning}
-rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
+rm(list = ls()[!ls() %in% c("se", "se_KRTAP", "pca_color")])
 ```
 
 ### Sample Distance and Similarity
@@ -290,10 +367,6 @@ core_genes <-
   tibble(gene_name = readr::read_csv("data/dge_v1_sig.csv") %>% 
   filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
   pull(gene_name)
-  # mutate(
-  # fam = str_sub(gene_name, end = 4)) %>%
-  # group_by(fam) %>% nest() %>% mutate(data_1 = map(data, ~.x[1,])) %>%
-  # unnest() %>% pull(gene_name1) %>% unique()
 
 se_heatmap <- se_heatmap[core_genes,]
 
@@ -349,21 +422,30 @@ draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
 # poster 480*8.1.5 480*10*1.5
-png("figure/heatmap.png", width = 480*8, height = 480*10, res=300)
-draw(heatmap, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-dev.off()
+# png("figure/heatmap.png", width = 480*8, height = 480*10, res=300)
+# draw(heatmap, heatmap_legend_side = "right",
+#      annotation_legend_side = "top", merge_legend = FALSE)
+# dev.off()
 
 ```
 
-```{r box plot for IL37, IL22}
-IL22_37 <- se_heatmap %>% filter(feature %in% c("IL22", "IL37"))
+```{r box plot for IL37, IL22, TNFRSF21, LINC01605}
+IL22_37_TNFRSF21_LINC01605 <- se %>% 
+  filter(feature %in% c("IL22", "IL37", "TNFRSF21", "LINC01605", "OSM", "OSMR"))
 
-IL22_37 %>% as_tibble() %>% 
+IL22_37_TNFRSF21_LINC01605_p <-
+  IL22_37_TNFRSF21_LINC01605 %>% as_tibble() %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
             facet.by = "feature", scale = "free", xlab = FALSE,
-            ylab = FALSE, color = "skin_type", palette = c("green", "orange", "red"), legend.title = " ",
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
             font.legend = c(14))
+
+IL22_37_TNFRSF21_LINC01605_p
+
+png("figure/IL22_37_TNFRSF21_LINC01605.png", width = 480*4, height = 480*4,res = 300)
+IL22_37_TNFRSF21_LINC01605_p
+dev.off()
 ```
 
 ```{r combine multiple plots, eval=FALSE}
@@ -385,7 +467,7 @@ At the baseline, the number of dysregulated genes are:
 
 ```{r pri-DGE-cleaning}
 # cleaning
-rm(list = ls()[!ls() %in% c("se", "se_KRTAP")])
+rm(list = ls()[!ls() %in% c("se", "se_KRTAP", "pca_color")])
 register(MulticoreParam(future::availableCores() - 2))
 ```
 
@@ -753,7 +835,6 @@ top10_space_g <-
   vp_space_500 %>% as_data_frame() %>% 
   mutate(gene_name = se_space_500 %>% rownames()) %>% 
   slice_max(biopsy_area, n = 10) %>% pull(gene_name)
-
 ```
 
 ```{r}
@@ -813,7 +894,7 @@ biopsy_area_results %>%
 ```{r save data, eval=FALSE}
 ls_gsa <- as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)") %>% lapply(get))
 names(ls_gsa) <- ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)")
-saveRDS(ls_gsa, "data/de_v1.rds")
+# saveRDS(ls_gsa, "data/de_v1.rds")
 ```
 
 ```{r gsa, eval=FALSE, echo=TRUE}
@@ -822,13 +903,13 @@ saveRDS(ls_gsa, "data/de_v1.rds")
 
 # gene rank
 rank <- 
-  tibble(gene_name = names(se_v1_LSvsNL)) %>% 
-  left_join(de_v1_LSvsNL %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NL)) %>% 
-  left_join(de_v1_LSvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NN)) %>% 
-  left_join(de_v1_NLvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_NL_vs_NN)) %>% 
-  left_join(de_v1_LSvsNL_result %>% mutate(rank_log2fc_LSvsNL = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNL)) %>% 
-  left_join(de_v1_LSvsNN_result %>% mutate(rank_log2fc_LSvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNN)) %>% 
-  left_join(de_v1_NLvsNN_result %>% mutate(rank_log2fc_NLvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_NLvsNN)) %>% 
+  tibble(gene_name = names(ls_gsa$se_v1_LSvsNL)) %>% 
+  left_join(ls_gsa$de_v1_LSvsNL %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NL)) %>% 
+  left_join(ls_gsa$de_v1_LSvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NN)) %>% 
+  left_join(ls_gsa$de_v1_NLvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_NL_vs_NN)) %>% 
+  left_join(ls_gsa$de_v1_LSvsNL_result %>% mutate(rank_log2fc_LSvsNL = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNL)) %>% 
+  left_join(ls_gsa$de_v1_LSvsNN_result %>% mutate(rank_log2fc_LSvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNN)) %>% 
+  left_join(ls_gsa$de_v1_NLvsNN_result %>% mutate(rank_log2fc_NLvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_NLvsNN)) %>% 
   pivot_longer(cols = !gene_name, names_to = "rank_type", values_to = "rank") %>% 
   group_by(rank_type) %>% nest() %>% 
   mutate(rank_vect = purrr::map(data, deframe)) 
@@ -892,6 +973,13 @@ topPathwaysDown <- fgseaRes_gobp[ES < 0][head(order(pval), n=10), pathway]
 topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
 plotGseaTable(gobp_list[topPathways], rank_log2fc_padj, fgseaRes_gobp, 
               gseaParam=0.5)
+```
+
+```{r enrichR}
+enrich_dbs <- c("GO_Molecular_Function_2018", "GO_Cellular_Component_2018",
+                "GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human")
+enrich_result <-
+  enrichr(ls_gsa$de_v1_LSvsNL_result_s$gene_name, databases = enrich_dbs)
 ```
 
 
@@ -1003,51 +1091,7 @@ multiomics_results_vis_two_sample
 
 ```
 
-## Hair
-```{r}
-# TL_KRTAP_gene <- 
-#   readxl::read_excel("/Users/tuhu/Downloads/KRTAP_cross_annotation_v2.xlsx") %>% 
-#   filter(`Gene name...1` %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4"))
 
-KRTAP_hair <-
-  se_KRTAP %>% filter(feature %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4")) %>% 
-  group_by(feature) %>% summarise(mean_expr = mean(counts), sd_expr = sd(counts)) %>% 
-  mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
-
-se_KRTAP_filt <- 
-  se_KRTAP %>% 
-  filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
-
-se_KRTAP_filt %>% 
-  ggplot(aes(gender, log2(counts_scaled))) +
-  geom_point() +
-  geom_boxplot() +
-  facet_wrap(~feature)
-
-```
-
-```{r KRTAP correlation}
-se_KRTAP_filt %>% assay(2) %>% t() %>% 
-  coop::pcor()
-```
-
-```{r}
-
-se_KRTAP_sgc <- 
-  se_KRTAP_filt %>% left_join(
-  multiomics_results %>% 
-  filter(cell_type == "Sweat_gland_cells") %>% 
-  select(BAM_ID, prop) %>% 
-  rename(Sweat_gland_cells = prop)) %>% 
-  filter(!is.na(Sweat_gland_cells))
-
-se_KRTAP_sgc %>% assay(2) %>% 
-  rbind(sgc = se_KRTAP_sgc$Sweat_gland_cells)  %>% 
-  t() %>% 
-  coop::pcor()
-
-
-```
 
 
 ## Varian Partition (to work)
@@ -1073,6 +1117,7 @@ variancePartition::plotVarPart(vp_500)
 ```
 
 ```{r VP core gene, cache=TRUE}
+# se_core <- readr::read_rds("data/se_core.rds")
 se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name)), ]
 vp_core <- variancePartition::fitExtractVarPartModel(
     assay(se_core, 2), 
@@ -1087,18 +1132,21 @@ variancePartition::plotVarPart(vp_core)
 variancePartition::plotPercentBars(
   head(vp_core[order(vp_core$skin_type, decreasing = TRUE),], 15))
 
-IL_vp <- vp_core %>% 
+# cytokine
+cytokine_vp <- vp_core %>% 
   data.frame() %>% 
   rownames_to_column(var = "gene_name") %>% 
-  filter(gene_name %>% str_detect("^IL\\d{1}")) %>% 
+  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
   arrange(-skin_type) %>% 
   pivot_longer(cols = !gene_name, names_to = "term") %>% 
   filter(term == "skin_type") %>% 
-  mutate(var_explained = round(value * 100, 2))
+  mutate(var_explained = round(value * 100, 2)) %>% 
+  filter(var_explained > 10)
 
-ggpubr::ggdotchart(
-  IL_vp, x = "gene_name", y = "var_explained",
+cytokine_vp_P <- ggpubr::ggdotchart(
+  cytokine_vp, x = "gene_name", y = "var_explained",
   color = "#FC4E07",
+  xlab = "",
   sorting = "descending",
   rotate = TRUE, 
   add = "segments",
@@ -1108,19 +1156,79 @@ ggpubr::ggdotchart(
   dot.size = 4,
   ylab = "Var% explained by atopic dermatitis tissue"
 )
+
+# LINC
+linc_vp <- vp_core %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "gene_name") %>% 
+  filter(gene_name %>% str_detect("^LINC")) %>% 
+  arrange(-skin_type) %>% 
+  pivot_longer(cols = !gene_name, names_to = "term") %>% 
+  filter(term == "skin_type") %>% 
+  mutate(var_explained = round(value * 100, 2)) %>% 
+  slice_max(order_by = var_explained, n = 15)
+
+linc_vp_P <- ggpubr::ggdotchart(
+  linc_vp, x = "gene_name", y = "var_explained",
+  color = "#FC4E07",
+  xlab = "",
+  sorting = "descending",
+  rotate = TRUE, 
+  add = "segments",
+  # label = IL_vp$value,
+  # font.label = list(color = "white", size = 3, vjust = 0.5),
+  ggtheme = ggpubr::theme_pubr(),
+  dot.size = 4,
+  ylab = "Var% explained by atopic dermatitis tissue"
+)
+
+# output
+# png("figure/vp_cytokine.png", width = 480*4, height= 480*4, res = 300)
+# cytokine_vp_P
+# dev.off()
+# 
+# png("figure/vp_linc.png", width = 480*4, height= 480*2.5, res = 300)
+# linc_vp_P
+# dev.off()
+
+
 ```
 
 ```{r}
 vp_core_t <- 
   vp_core %>% 
   data.frame() %>% 
-  rownames_to_column(var = "gene_name")
+  rownames_to_column(var = "gene_name") %>% tibble()
 
 vp_core <- de_v1_c_d %>%   
   left_join(vp_core_t %>% select(gene_name, skin_type) %>% rename(var_explained = skin_type)) %>% 
   mutate(var_explained)
 
 ```
+
+```{r analyze individual factor}
+vp_core_t %>% 
+  filter(skin_type > .05, subject > .05) %>% 
+  mutate(skin_type_subject_ratio = skin_type / (subject + .01)) %>% 
+  arrange(skin_type_subject_ratio)
+```
+
+```{r boxplot - individual}
+boxplot_individual_d <- se %>% 
+  filter(feature %in% c("DOK7", "PSG5", "IGHA2", "PDZD7"))
+
+boxplot_individual_p <-
+  boxplot_individual_d %>% as_tibble() %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", scale = "free", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14))
+
+boxplot_individual_p
+```
+
+
 
 ```{r}
 vp_container <- htmltools::withTags(table(

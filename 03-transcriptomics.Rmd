@@ -22,6 +22,9 @@ library(BiocParallel)
 library(DESeq2)
 library(enrichR)
 library(ggpubr)
+library(MuSiC)
+library(Biobase)
+library(convert)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 ```
 
@@ -351,7 +354,7 @@ core_genes <-
   filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
   pull(gene_name)
 
-se_heatmap <- se_heatmap[core_genes,]
+se_heatmap <- se_heatmap[core_genes[core_genes %in% rownames(se_heatmap)],]
 
 heatmap_data <- 
   se_heatmap %>% 
@@ -958,7 +961,7 @@ plotGseaTable(gobp_list[topPathways], rank_log2fc_padj, fgseaRes_gobp,
               gseaParam=0.5)
 ```
 
-```{r enrichR}
+```{r enrichR, eval=FALSE}
 enrich_dbs <- c("GO_Molecular_Function_2018", "GO_Cellular_Component_2018",
                 "GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human")
 enrich_result <-
@@ -967,10 +970,7 @@ enrich_result <-
 
 
 ## Cell Type Deconvolution
-```{r MuSic}
-library(MuSiC)
-library(Biobase)
-library(convert)
+```{r MuSic, cache=TRUE}
 
 # Construct ExpressionSet for bulk RNA-seq
 

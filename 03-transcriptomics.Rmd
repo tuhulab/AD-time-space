@@ -6,23 +6,6 @@
 
 ## Results
 
-
-
-## Discussion
-
-## Materials and methods
-
-### Study design
-
-### RNA-seq data analysis.
-
-Data cleaning and curation.
-
-## Acknowledgement
-
-Computerome.
-
-
 ```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
 library(tibble)
 library(dplyr)

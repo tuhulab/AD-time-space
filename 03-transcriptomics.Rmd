@@ -26,6 +26,7 @@ library(MuSiC)
 library(Biobase)
 library(convert)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
 ```
 
 ```{r load data}
@@ -165,6 +166,8 @@ exclude_BAM <-
 
 ```{r generate new se}
 se <- se[, !se$BAM_ID %in% exclude_BAM]
+colData(se)$biopsy_area <- colData(se)$biopsy_area %>% 
+  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
 
 se_prifilt <- se
 
@@ -175,8 +178,9 @@ se <- se %>%
 
 ```
 
-## generate KRTAP
-```{r KRTAP}
+The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) 4.2 and mean SCORing Atopic Dermatitis (SCORAD) 33.5. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE. Individual data points were reported in the supplementary table.
+
+```{r generate KRTAP}
 se_KRTAP <- se_prifilt %>% 
   keep_abundant(factor_of_interest = skin_type, minimum_proportion = .1) %>%
   scale_abundance()
@@ -186,7 +190,6 @@ se_KRTAP <- se_prifilt %>%
 ```
 
 ```{r KRTAP variance}
-se_KRTAP
 
 KRTAP_hair <-
   se_KRTAP %>% filter(feature %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4")) %>% 
@@ -197,20 +200,12 @@ se_KRTAP_filt <-
   filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
 ```
 
-```{r KRTAP correlation}
-se_KRTAP_filt %>% assay(2) %>% t() %>% 
-  cor(method = "pearson")
-```
-```{r}
-se_KRTAP_filt %>% assay(2) %>% t() %>% 
-  cor(method = "spearman")
-```
-
-
-
-
-
 ```{r eval=FALSE}
+psych::pairs.panels(se_KRTAP_filt %>% assay(2) %>% log1p() %>% t())
+```
+
+
+```{r generate heatmap for krtap, eval=FALSE}
 KRTAP_filt_d <- 
   se_KRTAP_filt %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
 
@@ -262,7 +257,6 @@ png("figure/heatmap_KRTAP.png", width = 480*4.5, height = 480*3, res=300)
 draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 dev.off()
-
 ```
 
 ## Explorative data analysis
@@ -271,8 +265,6 @@ dev.off()
 PCA <- 
   se %>% 
   reduce_dimensions(method = "PCA", top = 350)
-
-pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
 ```
 
 ```{r PCA 3d plot, eval=FALSE}
@@ -284,7 +276,7 @@ rgl::snapshot3d("figure/pca3d.png", fmt="png")
 rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
 ```
 
-```{r include PCA 3d plot, dpi=300}
+```{r include PCA 3d plot, dpi=300, out.width='100%'}
 knitr::include_graphics("figure/pca3d.png")
 ```
 

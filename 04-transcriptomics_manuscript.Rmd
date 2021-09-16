@@ -27,6 +27,7 @@ library(Biobase)
 library(convert)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
+register(MulticoreParam(future::availableCores() - 2))
 ```
 
 ```{r load data}
@@ -168,101 +169,17 @@ example_boxplot_heatmap_p
 
 We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (Table Sx). The skin transcriptome was enriched for (Fig-S1).
 
-```{r pri-DGE-cleaning}
-# cleaning
-rm(list = ls()[!ls() %in% c("se", "se_krtap", "pca_color")])
-register(MulticoreParam(future::availableCores() - 2))
-```
-
-```{r DGE-V1, cache=TRUE}
-
-# V1 LSvsNL --------------------
-se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
-de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type)
-de_v1_LSvsNL <- DESeq2::DESeq(de_v1_LSvsNL, parallel = TRUE)
 
 
-de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_LSvsNL_result <- bind_cols(tibble(gene_name = rownames(se_v1_LSvsNL)), de_v1_LSvsNL_LFC %>% as_tibble())
-de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
-
-# V1 LSvsNN --------------------
-se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
-de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
-de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
-
-de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_LSvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_LSvsNN)), de_v1_LSvsNN_LFC %>% as_tibble())
-de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
-
-# V1 LSvsNN --------------------
-se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
-de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
-de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
-
-de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_NLvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_NLvsNN)), de_v1_NLvsNN_LFC %>% as_tibble())
-de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
-
-# Consolidate the results -----
-de_v1_c <-
-  bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
-            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsNN"),
-            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsNN")) %>% 
-  mutate(direction = ifelse(log2FoldChange > 0, "up", "down"))
-
-de_v1_c_s <-
-  de_v1_c %>% 
-  group_by(contrast, direction) %>% 
-  summarise(n_dys = n())
-
-# No of dysregulated genes
-n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
-n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
-n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
-
-```
-
-```{r write out, eval=FALSE}
-de_v1_c %>% readr::write_csv("data/dge_v1_sig.csv")
-```
-
-```{r Consolidate Results display}
-de_v1_c_d <- de_v1_c %>% 
-  select(gene_name, log2FoldChange, padj, contrast) %>% 
-  pivot_wider(names_from = contrast, values_from = c("log2FoldChange", "padj")) %>% 
-  arrange(-log2FoldChange_LSvsNL)
-
-t_container <- htmltools::withTags(table(
-  class = 'display',
-  thead(
-    tr(
-      th(rowspan = 2, 'Gene name'),
-      th(colspan = 3, 'log2 Fold Change'),
-      th(colspan = 3, 'Adjusted p-value')
-    ),
-    tr(
-      lapply(rep(c('LSvsNL', 'LSvsNN', "NLvsNN"), 2), th)
-    )
-  )
-))
-  
-datatable(de_v1_c_d, 
-          colnames = c("gene name", "LSvsNL", "LSvsNN", "NLvsNN", "LSvsNL", "LSvsNN", "NLvsNN"), container = t_container, rownames = FALSE,
-          options = list(pageLength = 20)) %>% 
-  formatRound(de_v1_c_d %>% colnames %>% str_extract("log2FoldChange_\\w{6}") %>% purrr::discard(is.na)) %>% 
-  formatSignif(de_v1_c_d %>% colnames %>% str_extract("padj_\\w{6}") %>% purrr::discard(is.na), digits = 3)
-```
 
 ## Variance analysis
 
-IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC \> NL \> LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2).
+IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC > NL > LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2).
 
-### Time Effect
+### Time Effect plays a minor role in transcriptome variation
 
-I performed `Likelihood Ratio Test (LRT)` to test the genes react in the **condition-specific manner over time**, compared to baseline samples.
+Likelihood Ratio Test (LRT) results showed no genes reacted in the condition-specific manner over time, compared to baseline samples.
 
-> The likelihood-ratio test assesses the goodness of fit of two competing statistical models based on the ratio of their likelihoods, specifically one found by maximization over the entire parameter space and another found after imposing some constraint. If the constraint (i.e., the null hypothesis) is supported by the observed data, the two likelihoods should not differ by more than sampling error. @RN24
 
 I first fit a `full model` (`~ subject + time + tissue_type + tissue_type * time`), then a `reduced model` (`~ subject + time + tissue_type`) by imposing `tissue_type * time` as the constraint.
 

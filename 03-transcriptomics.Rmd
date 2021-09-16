@@ -178,32 +178,20 @@ se <- se %>%
 
 ```
 
-The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) 4.2 and mean SCORing Atopic Dermatitis (SCORAD) 33.5. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE. Individual data points were reported in the supplementary table.
-
 ```{r generate KRTAP}
 se_KRTAP <- se_prifilt %>% 
   keep_abundant(factor_of_interest = skin_type, minimum_proportion = .1) %>%
   scale_abundance()
-# KRTAP_index <- se_KRTAP %>% rownames() %>% str_detect("KRTAP5-|KRTAP10-4")
-# se_KRTAP <- se_KRTAP[KRTAP_index,]
-# sum(KRTAP_index)
 ```
 
 ```{r KRTAP variance}
-
 KRTAP_hair <-
   se_KRTAP %>% filter(feature %in% c(paste0("KRTAP5-", 1:11), "KRTAP10-4")) %>% 
   group_by(feature) %>% summarise(mean_expr = mean(counts), sd_expr = sd(counts)) %>%   mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
-
 se_KRTAP_filt <- 
   se_KRTAP %>% 
   filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
 ```
-
-```{r eval=FALSE}
-psych::pairs.panels(se_KRTAP_filt %>% assay(2) %>% log1p() %>% t())
-```
-
 
 ```{r generate heatmap for krtap, eval=FALSE}
 KRTAP_filt_d <- 
@@ -259,15 +247,30 @@ draw(heatmap, heatmap_legend_side = "right",
 dev.off()
 ```
 
-## Explorative data analysis
-### Principle component analysis (PCA)
-```{r PCA, include = TRUE}
+```{r baseline characteristics}
+baseline_disease_severity <- 
+  clinical_records %>% filter(visit_no == 1, group == "AD") %>% 
+  summarise(mean_scorad = mean(scorad, na.rm = TRUE) %>% round(1),
+            mean_easi = mean(easi_total_score) %>% round(2))
+```
+
+```{r eval=FALSE}
+psych::pairs.panels(se_KRTAP_filt %>% assay(2) %>% log1p() %>% t())
+```
+
+### Baseline characteristics
+
+The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) ``r baseline_disease_severity$mean_easi`` and mean SCORing Atopic Dermatitis (SCORAD) ``r baseline_disease_severity$mean_scorad``. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE. Individual data points were reported in the supplementary table.
+
+### Transcriptome architecture and components of AD
+
+```{r PCA}
 PCA <- 
   se %>% 
   reduce_dimensions(method = "PCA", top = 350)
 ```
 
-```{r PCA 3d plot, eval=FALSE}
+```{r PCA 3d, eval=FALSE}
 attr(PCA, "internals")$PCA %>% 
   pca3d::pca3d(group = PCA$skin_type, col = pca_color, radius = 1.5, 
                shape = "s", 
@@ -276,7 +279,7 @@ rgl::snapshot3d("figure/pca3d.png", fmt="png")
 rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
 ```
 
-```{r include PCA 3d plot, dpi=300, out.width='100%'}
+```{r PCA-3d-plot, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
 knitr::include_graphics("figure/pca3d.png")
 ```
 
@@ -284,62 +287,11 @@ knitr::include_graphics("figure/pca3d.png")
 rm(list = ls()[!ls() %in% c("se", "se_KRTAP", "pca_color")])
 ```
 
-### Sample Distance and Similarity
-```{r distance}
-dist_st <- # st: skin_type
-  lapply(c("LS", "NL", "NN"), function(x){
-    se %>% 
-      subset(select = skin_type == x) %>% 
-      assay(2) %>% 
-      t() %>% 
-      dist() %>% 
-      as.numeric()})
+We obtained ``r ncol(se)`` skin transcriptomes after data cleaning. The top three principal components could separate the different tissue types (fig-\@ref(fig:PCA-3d-plot)). The heatmap showed AD lesional skins (LS) can be separated from AD non-lesional skins (NL) and healthy control skins (HC), but, NL and HC can't be separated (fig-\@ref(fig:heatmap-top-50)).
 
-cosine_st <-
-    lapply(c("LS", "NL", "NN"), function(x){
-    se %>% 
-      subset(select = skin_type == x) %>% 
-      assay(2) %>% 
-      coop::cosine() %>% 
-      as.numeric()})
 
-names(dist_st) <- c("LS", "NL", "NN")
-names(cosine_st) <- c("LS", "NL", "NN")
-
-dist_df <- plyr::ldply(dist_st, tibble, .name_repair = ~ c("dist"),
-                       .id = "skin_type")
-
-cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
-                       .id = "skin_type")
-
-dist_df %>% 
-  ggplot(aes(x = dist, 
-             color = skin_type,
-             fill = skin_type)) +
-  geom_density(alpha = .6) +
-  theme_classic() +
-  ggsci::scale_color_nejm() + 
-  ggsci::scale_fill_nejm() +
-  xlab("Euclidean Distance")
-
-cosine_df %>% 
-  ggplot(aes(x = cos_dist, 
-             color = skin_type,
-             fill = skin_type)) +
-  geom_density(alpha = .4) +
-  theme_classic() +
-  ggsci::scale_color_nejm() + 
-  ggsci::scale_fill_nejm() +
-  xlab("Cosine similarity")
-
-```
-
-### Heatmap
-```{r heatmap, fig.align='center', dpi = 300}
+```{r heatmap-top-50, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
 se_heatmap <- se
-# consolidate biopsy_area info
-colData(se_heatmap)$biopsy_area <- colData(se)$biopsy_area %>% 
-  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
 
 core_genes <- 
   tibble(gene_name = readr::read_csv("data/dge_v1_sig.csv") %>% 
@@ -371,25 +323,25 @@ heatmap_annotation <-
     col = list(`Tissue type` = pca_color,
                `Sampling site` = color),
     # simple_anno_size = unit(1, "cm"),
-    annotation_legend_param = list(`Tissue type` = list(nrow = 1, grid_height = unit(2, "cm"), 
-                                                        grid_width = unit(1, "cm"), 
-                                                        title_gp = gpar(fontsize = 16),
-                                                        labels_gp = gpar(fontsize = 16)),
-                                   `Sampling site` = list(nrow = 1, grid_height = unit(2, "cm"), 
-                                                          grid_width = unit(1, "cm"), 
-                                                          title_gp = gpar(fontsize = 16),
-                                                          labels_gp = gpar(fontsize = 16))
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        # title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 9)),
+                                   `Sampling site` = list(nrow = 1,
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          # title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 9))
                                    ))
 
-# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
-                                               
 heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
                         name = "gene expression",
                         column_dend_reorder = TRUE,
                         # clustering_method_columns = "complete",
                         show_column_names = FALSE,
                         show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(heatmap_data_m)[1])),
+                        row_names_gp = gpar(fontsize = min(10, 800 * 1.5 / dim(heatmap_data_m)[1])),
                         top_annotation = heatmap_annotation,
                         heatmap_legend_param = list(
                           title_gp = gpar(fontsize = 14),
@@ -404,44 +356,34 @@ draw(heatmap, heatmap_legend_side = "right",
 # draw(heatmap, heatmap_legend_side = "right",
 #      annotation_legend_side = "top", merge_legend = FALSE)
 # dev.off()
-
 ```
 
-```{r box plot for IL37, IL22, TNFRSF21, LINC01605}
-IL22_37_TNFRSF21_LINC01605 <- se %>% 
+```{r example-boxplot-heatmap}
+example_boxplot_heatmap <- 
+  se %>% 
   filter(feature %in% c("IL22", "IL37", "TNFRSF21", "LINC01605", "OSM", "OSMR"))
 
-IL22_37_TNFRSF21_LINC01605_p <-
-  IL22_37_TNFRSF21_LINC01605 %>% as_tibble() %>% 
+example_boxplot_heatmap_p <-
+  example_boxplot_heatmap %>% as_tibble() %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
             facet.by = "feature", scale = "free", xlab = FALSE,
             ylab = FALSE, color = "skin_type", 
             palette = pca_color, legend.title = "",
             font.legend = c(14))
 
-IL22_37_TNFRSF21_LINC01605_p
+example_boxplot_heatmap_p
 
-png("figure/IL22_37_TNFRSF21_LINC01605.png", width = 480*4, height = 480*4,res = 300)
-IL22_37_TNFRSF21_LINC01605_p
-dev.off()
-```
-
-```{r combine multiple plots, eval=FALSE}
-
-
+# png("figure/IL22_37_TNFRSF21_LINC01605.png", width = 480*4, height = 480*4,res = 300)
+# IL22_37_TNFRSF21_LINC01605_p
+# dev.off()
 ```
 
 
 
 ## Differential gene expression (DGE) analysis
 
-### Baseline
+We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (Table Sx). The skin transcriptome was enriched for (Fig-S1). IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC > NL > LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2). 
 
-At the baseline, the number of dysregulated genes are:
-
-* `LSvsNL`: `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL_down")` down-regulated;
-* `LSvsNN`: `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN_down")` down-regulated
-* `NLvsNN`: `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_up")` up-regulated and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN_down")` down-regulated
 
 ```{r pri-DGE-cleaning}
 # cleaning
@@ -493,12 +435,10 @@ de_v1_c_s <-
   summarise(n_dys = n())
 
 # No of dysregulated genes
-n_de_v1_LSvsNL_up <- de_v1_c_s %>% filter(contrast == "LSvsNL", direction == "up") %>% pull(n_dys)
-n_de_v1_LSvsNL_down <- de_v1_c_s %>% filter(contrast == "LSvsNL", direction == "down") %>% pull(n_dys)
-n_de_v1_LSvsNN_up <- de_v1_c_s %>% filter(contrast == "LSvsNN", direction == "up") %>% pull(n_dys)
-n_de_v1_LSvsNN_down <- de_v1_c_s %>% filter(contrast == "LSvsNN", direction == "down") %>% pull(n_dys)
-n_de_v1_NLvsNN_up <- de_v1_c_s %>% filter(contrast == "NLvsNN", direction == "up") %>% pull(n_dys)
-n_de_v1_NLvsNN_down <- de_v1_c_s %>% filter(contrast == "NLvsNN", direction == "down") %>% pull(n_dys)
+n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
+n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
+n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
+
 ```
 
 ```{r write out, eval=FALSE}
@@ -506,7 +446,6 @@ de_v1_c %>% readr::write_csv("data/dge_v1_sig.csv")
 ```
 
 ```{r Consolidate Results display}
-
 de_v1_c_d <- de_v1_c %>% 
   select(gene_name, log2FoldChange, padj, contrast) %>% 
   pivot_wider(names_from = contrast, values_from = c("log2FoldChange", "padj")) %>% 
@@ -793,7 +732,7 @@ se_space %>% colData() %>% as_tibble() %>%
 ```
 
 ### Variance Partition
-```{r vp_biopsy_area}
+```{r vp_biopsy_area, cache=TRUE}
 se_space_500 <- se_space %>% keep_variable()
 vp_space_500 <- variancePartition::fitExtractVarPartModel(
     assay(se_space_500, 2), 

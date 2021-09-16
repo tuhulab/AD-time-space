@@ -1,7 +1,8 @@
 # Appendix
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, 
+                      echo = FALSE)
 ```
 
 ## QC and Data Curation
@@ -16,3 +17,53 @@ DT::datatable(sample_qc_record_edited) %>%
   DT::formatRound(c("r_LS", "r_NL", "r_NN", "r_replicate"))
 ```
 
+## Transcriptome
+
+### Sample Distance and Similarity
+```{r distance}
+dist_st <- # st: skin_type
+  lapply(c("LS", "NL", "NN"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      t() %>% 
+      dist() %>% 
+      as.numeric()})
+
+cosine_st <-
+    lapply(c("LS", "NL", "NN"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(dist_st) <- c("LS", "NL", "NN")
+names(cosine_st) <- c("LS", "NL", "NN")
+
+dist_df <- plyr::ldply(dist_st, tibble, .name_repair = ~ c("dist"),
+                       .id = "skin_type")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type")
+
+dist_df %>% 
+  ggplot(aes(x = dist, 
+             color = skin_type,
+             fill = skin_type)) +
+  geom_density(alpha = .6) +
+  theme_classic() +
+  ggsci::scale_color_nejm() + 
+  ggsci::scale_fill_nejm() +
+  xlab("Euclidean Distance")
+
+cosine_df %>% 
+  ggplot(aes(x = cos_dist, 
+             color = skin_type,
+             fill = skin_type)) +
+  geom_density(alpha = .4) +
+  theme_classic() +
+  ggsci::scale_color_nejm() + 
+  ggsci::scale_fill_nejm() +
+  xlab("Cosine similarity")
+```

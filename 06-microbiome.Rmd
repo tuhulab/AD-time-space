@@ -1,0 +1,316 @@
+# Microbiome
+
+```{r}
+knitr::opts_chunk$set(eval = FALSE, echo = TRUE)
+```
+
+
+```{r microbiome environment, eval=FALSE}
+install.packages("pacman")
+pacman::p_load(phyloseq, metacoder, pryr, biomformat, RColorBrewer, ggplot2, gplots, Cairo, igraph, BiocParallel, randomForest, metagenomeSeq, MASS, DESeq2, vegan, RJSONIO, ggfortify, pheatmap, xtable, genefilter, data.table, reshape, stringr, ape, grid, gridExtra, splitstackshape, edgeR, globaltest, R.utils, viridis, ggrepel, ppcor, qs)
+devtools::install_github("kylebittinger/qiimer")
+devtools::install_github("joey711/biom")
+devtools::install_github("nick-youngblut/Tax4Fun")
+devtools::install_github("xia-lab/MicrobiomeAnalystR", build = TRUE, build_opts = c("--no-resave-data", "--no-manual"))
+```
+
+```{r microbiome load packages, eval=FALSE}
+suppressWarnings(library(MicrobiomeAnalystR))
+```
+
+```{r microbiome load data, eval=FALSE}
+# Initiate the mbSetObj
+mbSet <- Init.mbSetObj()
+
+# Set the analysis type
+mbSet <- SetModuleType(mbSet, "mdp")
+
+# Read in the abundance file, file format is .txt, taxa labels not included in the abundance file,
+mbSet <- Read16SAbundData(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_otu_table.txt", format = "text", taxa_type = "SILVA", ismetafile="T")
+
+# Read in the metadata file
+mbSet <- ReadSampleTable(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_meta_table.txt")
+
+
+# Read in the taxonomy table
+mbSet <- Read16STaxaTable(mbSet, dataName = "../multiomics-ad-microbiome/data/microbiomeanalyst/skin_taxa_table.txt")
+
+# Data integrity check
+mbSet <- SanityCheckData(mbSet, filetype="text")
+
+# Create phyloseq object
+mbSet <- CreatePhyloseqObj(mbSet, type="text", taxa_type="SILVA", taxalabel="F")
+
+```
+
+```{r eval=FALSE}
+mbSet<-ApplyAbundanceFilter(mbSet, filt.opt="prevalence", count=4, smpl.perc=0.2);
+
+# Low variance filtering, based on the inter-quantile range. Here, variance is calculated using
+# IQR and 10% of the lowest variance features will be removed.
+mbSet<-ApplyVarianceFilter(mbSet, filtopt="iqr", filtPerct=0.1);
+
+mbSet<-PerformNormalization(mbSet, rare.opt="none", scale.opt="colsum", transform.opt="none");
+
+# Option 2: Rarefying to the minimum library size + plotting the rarefraction curves
+mbSet<-PerformNormalization(mbSet, rare.opt="rarewi", scale.opt="colsum", transform.opt="none");
+# mbSet<-PlotRareCurve(mbSet, graphName="rarefraction_curve.png", variable="X")
+```
+
+```{r eval=FALSE}
+mbSet<-PlotTaxaAundanceBar(mbSet, "taxa_alpha_1","Genus","Group", "none", "barraw",10, "set3","sum",10, "bottom", "F", "png");
+
+# Stacked area plot, class level, viridis color palette
+mbSet<-PlotTaxaAbundanceArea(mbSet, "taxa_alpha_3","overview","Genus","Group", 10, "viridis","sum",10,"bottom", "F", "png");
+```
+
+```{r eval=FALSE}
+BiocManager::install("curatedMetagenomicData")
+```
+
+```{r}
+pacman::p_load(curatedMetagenomicData, tidyverse, vegan, reshape2)
+```
+
+```{r}
+head(colnames(curatedMetagenomicData::sampleMetadata), 30)
+```
+
+```{r}
+curatedMetagenomicData::sampleMetadata %>%
+  pull(study_name) %>%
+  unique() %>%
+  length
+```
+
+```{r}
+curatedMetagenomicData::sampleMetadata %>%
+  pull(study_name) %>%
+  table() %>% sort(decreasing = TRUE)
+```
+
+```{r}
+metadata_filtered <- sampleMetadata %>%
+                         filter(study_name == "HMP_2012")
+```
+
+```{r}
+table(metadata_filtered$body_site)
+table(metadata_filtered$body_subsite)
+```
+
+```{r}
+#Filter by body_subsite
+
+metadata_filtered <- metadata_filtered %>%
+  filter(body_subsite == "supragingival_plaque" | body_subsite == "stool") %>%
+  select(where(~ !all(is.na(.x))))
+
+#Removing longitudinal data
+
+pasted <- paste0(metadata_filtered[, "subject_id"], metadata_filtered[, "body_site"])
+table(pasted)[table(pasted)>1]
+
+metadata_filtered$pasted <- pasted
+
+#Extracting the 1st match of the 'pasted' value in the filtered metadata and returning the corresponding rownames
+
+rows_to_extract <- unique(as.data.frame(sapply(pasted, function(x) match(x, metadata_filtered$pasted))))[,1]
+
+metadata_filtered <- metadata_filtered[rows_to_extract, !(names(metadata_filtered) %in% "pasted")]
+
+head(metadata_filtered)
+nrow(metadata_filtered)
+```
+
+```{r}
+tse_hmp_2012 <- curatedMetagenomicData("HMP_2012.relative_abundance", dryrun = FALSE)[[1]]
+```
+
+```{r}
+#Extract the main assay from the tse by name
+
+relabs_hmp_2012 <- assay(tse_hmp_2012, "relative_abundance")
+
+#check the rownames of the extracted assay
+
+head(rownames(relabs_hmp_2012))
+
+#Shorten rownames for readability
+
+rownames(relabs_hmp_2012) <- gsub(".*s__", "", rownames(relabs_hmp_2012))
+```
+
+```{r}
+relabs_hmp_2012_sub <- relabs_hmp_2012[,colnames(relabs_hmp_2012) %in% metadata_filtered$sample_id]
+```
+
+```{r}
+metadata_filtered_ordered <- metadata_filtered[sapply(colnames(relabs_hmp_2012_sub), function(x) grep(x, metadata_filtered$sample_id)),]
+sum(!(metadata_filtered_ordered$sample_id == colnames(relabs_hmp_2012_sub)))
+```
+
+```{r}
+#Calculating alpha diversity using the diversity function (vegan package) and 'Shannon index'
+alpha_div <- data.frame(diversity(t(relabs_hmp_2012_sub), index = "shannon"))
+colnames(alpha_div) <- c("shannon_div")
+
+#Adding the information on body subsite. Changing to TitleCase: stool -> Stool and supragingival_plaque: Supragingival Plaque
+alpha_div$body_subsite <- tools::toTitleCase(gsub("_", " ",
+metadata_filtered_ordered[sapply(rownames(alpha_div), function(x) grep(x,
+metadata_filtered_ordered$sample_id)),]$body_subsite))
+head(alpha_div)
+
+#Plotting the data
+
+p <- ggplot(alpha_div, aes(x = body_subsite, y = shannon_div, fill = body_subsite)) + theme_bw() +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(size = 3, alpha = 0.5) + ggtitle("Alpha diversity (Shannon index)") + xlab("Body subsite") + ylab("Shannon diversity") +
+  theme(axis.title.x = element_text(size = 14), axis.text = element_text(size = 14), axis.text.y = element_text(size = 14), 
+  axis.title.y = element_text(size = 14), plot.title = element_text(size = 14, hjust = 0.5), legend.position = "none") + 
+  scale_fill_manual(name = "Body site", values = c("#EF8A62", "#67A9CF"))
+
+#Save the plot as a pdf
+
+p
+
+```
+```{r}
+
+beta_div <- vegdist(t(relabs_hmp_2012_sub), method = "bray") %>%
+                    cmdscale(eig = TRUE)
+
+#Creating a dataframe of the cmdscale returned points with the coordinations of the 1st and 2nd PC
+
+pcoa = data.frame(PCoA1 = beta_div$points[,1], PCoA2 = beta_div$points[,2])
+
+#Adding body subsite information to the dataframe
+
+pcoa$body_subsite = tools::toTitleCase(gsub("_", " ", metadata_filtered_ordered[sapply(rownames(pcoa), function(x) grep(x, metadata_filtered_ordered$sample_id)),]$body_subsite))
+head(pcoa)
+
+#Plotting the data
+
+p <- ggplot(pcoa, aes(x = PCoA1, y = PCoA2)) + 
+    geom_point(aes(colour = body_subsite), size = 3) + theme_bw() + theme(legend.position = "bottom") + 
+    ggtitle("PCoA with Bray-Curtis") + xlab("PC1") + ylab("PC2") +
+    theme(axis.title.x = element_text(size = 14), axis.text = element_text(size = 14), axis.text.y = element_text(size = 14), 
+    axis.title.y = element_text(size = 14), plot.title = element_text(size = 14, hjust = 0.5), legend.position = "bottom") + 
+    geom_hline(yintercept = 0,linetype = "dashed", colour = "grey") + 
+    geom_vline(xintercept = 0,linetype = "dashed", colour = "grey") +
+    scale_colour_manual(name = "Body site", values = c("#EF8A62", "#67A9CF"))
+
+p
+```
+
+```{r}
+permanova <- vegan::adonis(t(relabs_hmp_2012_sub) ~ body_subsite,
+                data = metadata_filtered_ordered,
+                permutations = 1999)
+
+permanova
+```
+
+```{r}
+#Define an arcsine function to transform the relative abundances to correct for compositionality-related issues before looking for differentially abundant species
+
+asin_trans <- function(rel_ab){
+  return(asin(sqrt(rel_ab/100)))
+}
+
+#Apply the transformation
+
+relabs_hmp_2012_sub_arc <- apply(relabs_hmp_2012_sub, c(1,2), function(x) asin_trans(x))
+```
+
+```{r}
+nrow(relabs_hmp_2012_sub_arc)
+```
+
+```{r}
+#Set a prevalence filter
+
+prevalence_threshold <- 20
+
+#remove all species below the prevalence filter
+
+relabs_hmp_2012_sub_arc_filtered <- relabs_hmp_2012_sub_arc[rowSums(relabs_hmp_2012_sub_arc > 0) > prevalence_threshold, ]
+
+# Number of species after filtering
+
+nrow(relabs_hmp_2012_sub_arc_filtered)
+```
+
+```{r}
+#Fitting a linear regression model using body_subsite with gender and age as covariates
+
+species <- rownames(relabs_hmp_2012_sub_arc_filtered)
+
+age <- metadata_filtered_ordered$age
+gender <- metadata_filtered_ordered$gender
+body_subsite <- metadata_filtered_ordered$body_subsite
+
+compute_lm <- function(species_relabs){
+
+  my_df <- data.frame(my_species = species_relabs, 
+                     body_subsite = body_subsite,
+                     gender = gender,
+                     age = age)
+
+#Using broom::tidy to generate clean output
+
+  res_lm <- broom::tidy(lm(as.formula("my_species ~ body_subsite + gender + age") , data=my_df, na.action = na.omit))
+  res_lm <- column_to_rownames(res_lm, var = "term")
+  res <- res_lm["body_subsitesupragingival_plaque", "p.value"]
+
+  return(res)
+}
+
+#Applying the linear model to all species
+
+lmResults <- as.data.frame(
+  sapply(species, 
+         FUN = function(x) {
+           species_relabs <- relabs_hmp_2012_sub_arc_filtered[rownames(relabs_hmp_2012_sub_arc_filtered) ==x,] 
+           res <- compute_lm(species_relabs)
+           return(res)
+         })
+  )
+
+colnames(lmResults) <- c("p.value")
+
+#FDR-correction with Benjamini-Hochberg (BH)
+
+lmResults$q_values <- p.adjust(lmResults$p.value,method = "BH")
+```
+
+```{r}
+head(lmResults[order(lmResults$q_values),], n = 6)[,"q_values", drop=FALSE]
+```
+
+```{r}
+my_lm_species <- rownames(head(lmResults[order(lmResults$q_values),], n = 3))
+my_lm_species
+
+#Get abundances of these species for each sample and stratify by body site
+
+my_data <- data.frame(t(relabs_hmp_2012_sub_arc_filtered[rownames(relabs_hmp_2012_sub_arc_filtered) %in% my_lm_species,]))
+my_data$body_subsite <- tools::toTitleCase(gsub("_", " ", sapply(rownames(my_data), function(x) metadata_filtered$body_subsite[grep(x, metadata_filtered$sample_id)])))
+head(my_data)
+
+my_data_plot <- melt(my_data)
+head(my_data_plot)
+
+#Plotting the data
+
+p <- ggplot(my_data_plot, aes(x=variable, y=value, fill=body_subsite)) + 
+     geom_boxplot(aes(fill=body_subsite)) + theme_bw() + 
+     theme(axis.title.x = element_blank(), axis.text.x = element_text(size = 14, angle = 45,  hjust=1), axis.text.y = element_text(size = 14), 
+     axis.title.y = element_text(size = 14), plot.title = element_text(size = 14, hjust = 0.5), legend.position = "bottom") + 
+    scale_fill_manual(name="Bodysite", values = c("#EF8A62", "#67A9CF")) +
+     labs(title="Bodysite-specific species", y = "Relative abundance")
+
+p
+```
+
+

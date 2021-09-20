@@ -1,5 +1,6 @@
 # Skin transcriptome data cleaning
 
+## Data cleaning
 ```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
 library(tibble)
 library(dplyr)
@@ -20,6 +21,7 @@ library(MuSiC)
 library(Biobase)
 library(convert)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+register(MulticoreParam(future::availableCores() - 2))
 ```
 
 ```{r load data}
@@ -194,3 +196,48 @@ se_KRTAP_filt <-
 readr::write_rds(se, "data/se.rds")
 readr::write_rds(se_KRTAP_filt, "data/se_krtap.rds")
 ```
+
+## Differentially gene expression at baseline
+
+```{r DGE-V1, cache=TRUE}
+# V1 LSvsNL --------------------
+se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
+de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type)
+de_v1_LSvsNL <- DESeq2::DESeq(de_v1_LSvsNL, parallel = TRUE)
+de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNL_result <- bind_cols(tibble(gene_name = rownames(se_v1_LSvsNL)), de_v1_LSvsNL_LFC %>% as_tibble())
+de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+# V1 LSvsNN --------------------
+se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
+de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
+de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
+
+de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_LSvsNN)), de_v1_LSvsNN_LFC %>% as_tibble())
+de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+# V1 LSvsNN --------------------
+se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
+de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
+de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
+de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_NLvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_NLvsNN)), de_v1_NLvsNN_LFC %>% as_tibble())
+de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+# Consolidate the results -----
+de_v1_c <-
+  bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
+            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsNN"),
+            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsNN")) %>% 
+  mutate(direction = ifelse(log2FoldChange > 0, "up", "down"))
+de_v1_c_s <-
+  de_v1_c %>% 
+  group_by(contrast, direction) %>% 
+  summarise(n_dys = n())
+# No of dysregulated genes
+n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
+n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
+n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
+
+de_v1_c %>% readr::write_csv("data/dge_v1_sig.csv")
+```
+
+

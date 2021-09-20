@@ -77,34 +77,26 @@ knitr::include_graphics("figure/pca3d.png")
 rm(list = ls()[!ls() %in% c("se", "se_krtap", "pca_color")])
 ```
 
-We obtained `r ncol(se)` skin transcriptomes after data cleaning. The top three principal components could separate the different tissue types (fig-\@ref(fig:PCA-3d-plot)). The heatmap showed AD lesional skins (LS) can be separated from AD non-lesional skins (NL) and healthy control skins (HC), but, NL and HC can't be separated (fig-\@ref(fig:heatmap-top-50)). AD
+We obtained `r ncol(se)` skin transcriptomes after data cleaning. The top three principal components could separate the different tissue types (fig-\@ref(fig:PCA-3d-plot)). The heatmap showed AD lesional skins (LS) can be separated from AD non-lesional skins (NL) and healthy control skins (HC), but, NL and HC can't be separated (fig-\@ref(fig:heatmap-top-50)). LS tissues showed higher heterogeneity than NL and HC tissues (fig-\@ref(fig:distance)).
 
 ```{r heatmap-top-50, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
 se_heatmap <- se
-
 core_genes <- 
   tibble(gene_name = readr::read_csv("data/dge_v1_sig.csv") %>% 
   filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
   pull(gene_name)
-
 se_heatmap <- se_heatmap[core_genes[core_genes %in% rownames(se_heatmap)],]
-
 heatmap_data <- 
   se_heatmap %>% 
   keep_variable(.abundance = counts_scale,
                 top = 50)
-
-# heatmap_data_m <- heatmap_data %>% assay()
-
 heatmap_data_m <-
   scale(assay(heatmap_data, 2) %>% t() %>% log1p(), 
         center = TRUE, scale = TRUE) %>% t()
-
 sample_site_color <- 
   colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
 color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
 names(color) <- sample_site_color
-
 heatmap_annotation <- 
   HeatmapAnnotation(
     `Tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
@@ -463,17 +455,6 @@ enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 ```
 
 ## Space effect
-
-### Consolidating biopsy area
-
-```{r biopsy_area barplot, eval=FALSE}
-se %>% colData() %>% as_tibble() %>% 
-  ggplot(aes(biopsy_area, fill = skin_type)) + 
-  geom_bar() + 
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) +
-  ggtitle("Biopsy area before consolidating")
-```
 
 ### Variance Partition
 

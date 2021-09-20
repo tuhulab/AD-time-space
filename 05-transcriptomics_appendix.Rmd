@@ -1,8 +1,9 @@
 # Transcriptome appendix
-```{r setup, include=FALSE}
+```{r setup-transcriptome-appendix, include=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 library(dplyr)
 library(tibble)
+library(SummarizedExperiment)
 ```
 
 ## Baseline characteristics
@@ -72,12 +73,9 @@ rownames(clinic_summary_t)[6] <- "EASI"
 rownames(clinic_summary_t)[7] <- "SCORAD"
 rownames(clinic_summary_t)[8] <- "oSCORAD"
 colnames(clinic_summary_t)[2] <- "HC (n=30)"
-
-knitr::kable(clinic_summary_t, format = "html")
-```
-
-```{r}
-knitr::kable(clinic_summary_t, format = "html", caption = "Baseline characteristics of AD and HC group") %>% 
+knitr::kable(clinic_summary_t, 
+             format = "html", 
+             caption = "Baseline characteristics of AD and HC group") %>% 
   kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test.")
 ```
 
@@ -94,5 +92,34 @@ colnames(individual_data)[8] <- "SCORAD"
 colnames(individual_data)[9] <- "oSCORAD"
 knitr::kable(individual_data, caption = "Baseline statistics of individual subjects")
 ```
+
+## Tissue type heterogenity
+```{r distance, cache=TRUE, fig.cap="Cosine distance of three tissue types"}
+se <- readr::read_rds("data/se.rds")
+group_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
+cosine_st <-
+    lapply(c("LS", "NL", "NN"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(cosine_st) <- c("LS", "NL", "NN")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type") %>% tibble
+
+cosine_df %>% 
+  ggpubr::ggdensity(x = "cos_dist", fill = "skin_type", 
+                    palette = group_color, xlab = "Cosine similarity") %>% 
+  ggpubr::ggpar(legend.title = "tissue type")
+```
+
+## AD disease signature
+```{r}
+
+```
+
 
 

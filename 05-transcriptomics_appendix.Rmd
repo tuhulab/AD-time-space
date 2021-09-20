@@ -1,0 +1,83 @@
+# Transcriptome appendix
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+library(dplyr)
+library(tibble)
+```
+
+## Baseline characteristics
+
+```{r baseline-statistics, fig.cap="hello"}
+extensive_meta <- 
+  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv")
+
+baseline_data <-  
+  extensive_meta %>% filter(visit == "01") %>% 
+  select(subject, age, bmi, blood_ige, gender, group, easi_total_score, scorad, scorad_objective) %>% 
+  distinct() %>% 
+  mutate(ige_200_h = ifelse(blood_ige > 200, TRUE, FALSE))
+  
+clinic_summary <- 
+ baseline_data %>% select(-subject) %>% group_by(group) %>% 
+  summarize(no_subject = n(),
+            female_percent = mean(gender == "female") * 100,
+            age_mean = mean(age), age_sd = sd(age), 
+            bmi_mean = mean(bmi), bmi_sd = sd(bmi), 
+            blood_ige_mean = mean(blood_ige, na.rm = TRUE), blood_ige_sd = sd(blood_ige, na.rm = TRUE), 
+            easi_mean = mean(easi_total_score), easi_sd = sd(easi_total_score), 
+            scorad_mean = mean(scorad, na.rm = TRUE), scorad_sd = sd(scorad, na.rm = TRUE),
+            oscorad_mean = mean(scorad_objective, na.rm = TRUE), 
+            oscorad_sd = sd(scorad_objective, na.rm = TRUE),
+            ige_mean = mean(blood_ige, na.rm = TRUE), 
+            ige_sd = sd(blood_ige, na.rm = TRUE),
+            ige_median = median(blood_ige, na.rm = TRUE),
+            ige_200_h = sum(blood_ige > 200, na.rm = TRUE))
+
+p_value <- 
+  tibble(
+    `Female%` = baseline_data %>% select(gender, group) %>% table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    `Blood_Ige > 200` = baseline_data %>% select(group, ige_200_h) %>% table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    age = t.test(x = baseline_data %>% filter(group == "AD") %>% select(age),
+                 y = baseline_data %>% filter(group == "CO") %>% select(age))$p.value,
+    bmi = t.test(x = baseline_data %>% filter(group == "AD") %>% select(bmi),
+                 y = baseline_data %>% filter(group == "CO") %>% select(bmi))$p.value,
+    `blood_ige` = t.test(x = baseline_data %>% filter(group == "AD") %>% select(blood_ige),
+                 y = baseline_data %>% filter(group == "CO") %>% select(blood_ige))$p.value
+) %>% mutate_all(round, digits = 2) %>% mutate_all(as.character)
+
+clinic_summary_t <-
+  clinic_summary %>% 
+  mutate(group = paste0(group, " (n=", no_subject,")"),
+         `Female%` = female_percent %>% round(),
+         age = paste(age_mean %>% round(1) , "±", age_sd %>% round(1)),
+         bmi = paste(bmi_mean %>% round(1) , "±", bmi_sd %>% round(1)),
+         blood_ige = paste(blood_ige_mean %>% round(1) , "±", blood_ige_sd %>% round(1)),
+         `Blood_Ige > 200` = round(ige_200_h / no_subject, 2) * 100,
+         easi = paste(easi_mean %>% round(1) , "±", easi_sd %>% round(1)),
+         scorad = paste(scorad_mean %>% round(1) , "±", scorad_sd %>% round(1)),
+         oscorad = paste(oscorad_mean %>% round(1) , "±", oscorad_sd %>% round(1))) %>%
+  select(group, `Female%`:oscorad) %>%
+  column_to_rownames("group") %>% mutate_all(as.character) %>% 
+  add_row(tibble_row(p_value)) %>% 
+  t()
+
+colnames(clinic_summary_t)[3] <- "p-value"
+clinic_summary_t[6:8, 2:3] <- " / "
+rownames(clinic_summary_t)[1] <- "Female(%)"
+rownames(clinic_summary_t)[2] <- "Age"
+rownames(clinic_summary_t)[3] <- "BMI"
+rownames(clinic_summary_t)[4] <- "Blood IgE"
+rownames(clinic_summary_t)[5] <- "Blood IgE>200(%)"
+rownames(clinic_summary_t)[6] <- "EASI"
+rownames(clinic_summary_t)[7] <- "SCORAD"
+rownames(clinic_summary_t)[8] <- "oSCORAD"
+colnames(clinic_summary_t)[2] <- "HC (n=30)"
+
+knitr::kable(clinic_summary_t, format = "html")
+```
+
+```{r}
+
+```
+
+

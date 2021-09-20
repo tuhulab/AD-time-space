@@ -39,3 +39,6 @@ rsconnect/
 # books
 _*
 multiomics_ad_phd_files/
+
+# data
+data/*.rds

@@ -197,7 +197,7 @@ readr::write_rds(se, "data/se.rds")
 readr::write_rds(se_KRTAP_filt, "data/se_krtap.rds")
 ```
 
-## Differentially gene expression at baseline
+## Visit 1: differentially expressed genes
 
 ```{r DGE-V1, cache=TRUE}
 # V1 LSvsNL --------------------
@@ -238,13 +238,69 @@ de_v1_c_s <-
 n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
 n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
 n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
-
 de_v1_c %>% readr::write_csv("data/de_v1_sig.csv")
 de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
                    de_v1_NLvsNN = de_v1_NLvsNN_result)
 de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
-
 ```
 
+## Visit 1: gene set analysis
+
+```{r gsa-prepare-data}
+ls_gsa <- 
+  as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)_result$") %>% lapply(get)) %>% 
+  purrr::map(function(df){
+    df <- df %>% mutate(rank = log2FoldChange * abs(padj)) %>% select(gene_name, rank) %>% 
+      deframe()})
+names(ls_gsa) <- 
+  ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)_result$") %>%
+  str_extract("(LS|NL)vs(NL|NN)")
+```
+
+```{r prepare gene set}
+# prepare gs --------------
+fun_extract_g_symbol <- function(gene_df){
+  gene_df %>% pull(gene_symbol)
+}
+
+extract_msigdb_sub <- function(subcat){
+  gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
+                            subcategory = subcat) %>% 
+    group_by(gs_name) %>% tidyr::nest() %>% 
+    mutate(gene_id = purrr::map(data, fun_extract_g_symbol)) %>% select(-data)
+  gs_list <- gs_df$gene_id
+  names(gs_list) <- gs_df$gs_name
+  return(gs_list)
+}
+
+gs_name <-
+  c("CP:BIOCARTA", 
+    "CP:KEGG", 
+    "CP:PID", 
+    "CP:REACTOME", 
+    "CP:WIKIPATHWAYS", 
+    "MIR:MIRDB", 
+    "TFT:GTRD", 
+    "GO:BP", 
+    "GO:MF", 
+    "IMMUNESIGDB")
+gs_list <- bplapply(gs_name, extract_msigdb_sub)
+names(gs_list) <- gs_name
+```
+
+```{r fgsea}
+gse_exp <- 
+  expand.grid(rank = ls_gsa, gs = gs_list)
+
+gse_res <- purrr::map2(gse_exp$rank[1],
+                       gse_exp$gs[1],
+            function(rank, gs){
+  fgsea::fgsea(pathways = gs, 
+               stats    = rank,
+               minSize  = 15,
+               maxSize  = 500, eps = 0) %>% 
+  filter(padj < .05) %>% arrange(-NES)
+}) 
+```
 

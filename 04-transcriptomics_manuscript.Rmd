@@ -533,11 +533,6 @@ biopsy_area_results %>%
 
 ## Gene Set Analysis
 
-```{r save data, eval=FALSE}
-ls_gsa <- as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)") %>% lapply(get))
-names(ls_gsa) <- ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)")
-# saveRDS(ls_gsa, "data/de_v1.rds")
-```
 
 ```{r gsa, eval=FALSE, echo=TRUE}
 
@@ -570,20 +565,35 @@ extract_msigdb_sub <- function(subcat){
   gs_list <- gs_df$gene_id
   names(gs_list) <- gs_df$gs_name
   return(gs_list)
-  }
-
+}
 
 gs_name <-
   c("CP:BIOCARTA", 
+    "CP:KEGG", 
        "CP:KEGG", 
+    "CP:KEGG", 
+    "CP:PID", 
        "CP:PID", 
+    "CP:PID", 
+    "CP:REACTOME", 
        "CP:REACTOME", 
+    "CP:REACTOME", 
+    "CP:WIKIPATHWAYS", 
        "CP:WIKIPATHWAYS", 
+    "CP:WIKIPATHWAYS", 
+    "MIR:MIRDB", 
        "MIR:MIRDB", 
+    "MIR:MIRDB", 
+    "TFT:GTRD", 
        "TFT:GTRD", 
+    "TFT:GTRD", 
+    "GO:BP", 
        "GO:BP", 
+    "GO:BP", 
+    "GO:MF", 
        "GO:MF", 
-       "IMMUNESIGDB")
+    "GO:MF", 
+    "IMMUNESIGDB")
 
 gs_list <- lapply(gs_name, extract_msigdb_sub)
 names(gs_list) <- gs_name

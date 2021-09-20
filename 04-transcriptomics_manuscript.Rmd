@@ -161,7 +161,12 @@ example_boxplot_heatmap_p
 
 ## Baseline
 
-We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (\@ref(ad-dge-v1)). The skin transcriptome was enriched for (Fig-S1).
+We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (\@ref(ad-dge-v1)). 
+
+### Gene set enrichment analysis
+The skin transcriptome was enriched for (Fig-S1).
+
+We also identified enrichment of transcription factor targets and microRNA targets, including MAML1 (related with NOTCH signaling), PSMB5, and TRIP13 target genes; MIR6768_5P, MIR6833_3P, MIR6873_3P targets ((Table: \@ref(tab:gsea-regulatory))).
 
 ## Variance analysis
 
@@ -531,108 +536,6 @@ biopsy_area_results %>%
 
 ```
 
-## Gene Set Analysis
-
-
-```{r gsa, eval=FALSE, echo=TRUE}
-
-# calc gene rank
-
-# gene rank
-rank <- 
-  tibble(gene_name = names(ls_gsa$se_v1_LSvsNL)) %>% 
-  left_join(ls_gsa$de_v1_LSvsNL %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NL)) %>% 
-  left_join(ls_gsa$de_v1_LSvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_LS_vs_NN)) %>% 
-  left_join(ls_gsa$de_v1_NLvsNN %>% pivot_transcript() %>% dplyr::select(gene_name = feature, WaldStatistic_skin_type_NL_vs_NN)) %>% 
-  left_join(ls_gsa$de_v1_LSvsNL_result %>% mutate(rank_log2fc_LSvsNL = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNL)) %>% 
-  left_join(ls_gsa$de_v1_LSvsNN_result %>% mutate(rank_log2fc_LSvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_LSvsNN)) %>% 
-  left_join(ls_gsa$de_v1_NLvsNN_result %>% mutate(rank_log2fc_NLvsNN = log2FoldChange * -log10(padj)) %>% dplyr::select(gene_name, rank_log2fc_NLvsNN)) %>% 
-  pivot_longer(cols = !gene_name, names_to = "rank_type", values_to = "rank") %>% 
-  group_by(rank_type) %>% nest() %>% 
-  mutate(rank_vect = purrr::map(data, deframe)) 
-
-
-fun_extract_g_symbol <- function(gene_df){
-  gene_df %>% pull(gene_symbol)
-}
-
-# prepare gs --------------
-extract_msigdb_sub <- function(subcat){
-  gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
-                            subcategory = subcat) %>% 
-    group_by(gs_name) %>% tidyr::nest() %>% 
-    mutate(gene_id = purrr::map(data, fun_extract_g_symbol)) %>% select(-data)
-  gs_list <- gs_df$gene_id
-  names(gs_list) <- gs_df$gs_name
-  return(gs_list)
-}
-
-gs_name <-
-  c("CP:BIOCARTA", 
-    "CP:KEGG", 
-       "CP:KEGG", 
-    "CP:KEGG", 
-    "CP:PID", 
-       "CP:PID", 
-    "CP:PID", 
-    "CP:REACTOME", 
-       "CP:REACTOME", 
-    "CP:REACTOME", 
-    "CP:WIKIPATHWAYS", 
-       "CP:WIKIPATHWAYS", 
-    "CP:WIKIPATHWAYS", 
-    "MIR:MIRDB", 
-       "MIR:MIRDB", 
-    "MIR:MIRDB", 
-    "TFT:GTRD", 
-       "TFT:GTRD", 
-    "TFT:GTRD", 
-    "GO:BP", 
-       "GO:BP", 
-    "GO:BP", 
-    "GO:MF", 
-       "GO:MF", 
-    "GO:MF", 
-    "IMMUNESIGDB")
-
-gs_list <- lapply(gs_name, extract_msigdb_sub)
-names(gs_list) <- gs_name
-
-# prepare for gse analyse ----
-gse_exp <- 
-  expand.grid(rank = rank$rank_vect, 
-              gs = gs_list)
-
-name <- 
-  expand.grid(ranktype = rank$rank_type, gs = gs_name) %>% 
-  mutate(name = paste(gs, ranktype, sep = "_")) %>% 
-  pull(name)
-
-gse_res <- purrr::map2(gse_exp$rank,
-                       gse_exp$gs,
-            function(rank, gs){
-  fgsea::fgsea(pathways = gs, 
-               stats    = rank,
-               minSize  = 15,
-               maxSize  = 500, eps = 0) %>% 
-  filter(padj < .05) %>% arrange(-NES)
-}) 
-
-names(gse_res) <- name
-
-topPathwaysUp <- fgseaRes_gobp[ES > 0][head(order(pval), n=10), pathway]
-topPathwaysDown <- fgseaRes_gobp[ES < 0][head(order(pval), n=10), pathway]
-topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
-plotGseaTable(gobp_list[topPathways], rank_log2fc_padj, fgseaRes_gobp, 
-              gseaParam=0.5)
-```
-
-```{r enrichR, eval=FALSE}
-enrich_dbs <- c("GO_Molecular_Function_2018", "GO_Cellular_Component_2018",
-                "GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human")
-enrich_result <-
-  enrichr(ls_gsa$de_v1_LSvsNL_result_s$gene_name, databases = enrich_dbs)
-```
 
 ## Cell Type Deconvolution
 

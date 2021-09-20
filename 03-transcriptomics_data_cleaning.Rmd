@@ -310,6 +310,6 @@ gse_res <- purrr::map2(gse_exp$rank,
 })
 
 names(gse_res) <- gse_exp$name
-gse_res %>% saveRDS("data/gse_res.rds")
+# gse_res %>% saveRDS("data/gse_res.rds")
 ```
 

@@ -119,7 +119,7 @@ cosine_df %>%
   ggpubr::ggpar(legend.title = "tissue type")
 ```
 
-## AD differentially expressed genes at visit 1 {#ad-dge-v1}
+## Visit 1: differentially expressed genes {#ad-dge-v1}
 ```{r ad-dge-v1}
 ad_de_v1 <- readr::read_csv("data/de_v1_sig.csv") %>% select(-direction)
 
@@ -148,6 +148,25 @@ datatable(de_v1_c_d,
   formatRound(de_v1_c_d %>% colnames %>% str_extract("log2FoldChange_\\w{6}") %>% purrr::discard(is.na)) %>% 
   formatSignif(de_v1_c_d %>% colnames %>% str_extract("padj_\\w{6}") %>% purrr::discard(is.na), digits = 3)
 ```
+
+## Visit 1: gene set enrichment analysis
+```{r}
+gse <- readr::read_rds("data/gse_res.rds")
+names(gse)
+```
+
+### Transcription factor and microRNA targets
+```{r gsea-regulatory}
+gse_reg <- gse[grep("MIR|TFT", names(gse), value=T)] %>% purrr::map_dfr(~.x)
+gse_reg %>% 
+  select(gene_set = pathway, padj, NES, contrast) %>% 
+  arrange(-NES) %>% 
+  mutate(padj = signif(padj, digits = 2), 
+         NES = round(NES, digits = 2),
+         link = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/", gene_set, ".html")) %>% 
+  knitr::kable(caption = "Enrichment results for transcription factor and microRNA targets")
+```
+
 
 
 

@@ -205,23 +205,25 @@ se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
 de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type)
 de_v1_LSvsNL <- DESeq2::DESeq(de_v1_LSvsNL, parallel = TRUE)
 de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_LSvsNL_result <- bind_cols(tibble(gene_name = rownames(se_v1_LSvsNL)), de_v1_LSvsNL_LFC %>% as_tibble())
+de_v1_LSvsNL_result <- de_v1_LSvsNL_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # V1 LSvsNN --------------------
 se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
 de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
 de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
-
 de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_LSvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_LSvsNN)), de_v1_LSvsNN_LFC %>% as_tibble())
+de_v1_LSvsNN_result <- de_v1_LSvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # V1 LSvsNN --------------------
 se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
 de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
 de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
 de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
-de_v1_NLvsNN_result <- bind_cols(tibble(gene_name = rownames(de_v1_NLvsNN)), de_v1_NLvsNN_LFC %>% as_tibble())
+de_v1_NLvsNN_result <- de_v1_NLvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
 # Consolidate the results -----
 de_v1_c <-
   bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
@@ -237,7 +239,12 @@ n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
 n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
 n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
 
-de_v1_c %>% readr::write_csv("data/dge_v1_sig.csv")
+de_v1_c %>% readr::write_csv("data/de_v1_sig.csv")
+de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
+                   de_v1_LSvsNN = de_v1_LSvsNN_result, 
+                   de_v1_NLvsNN = de_v1_NLvsNN_result)
+de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+
 ```
 
 

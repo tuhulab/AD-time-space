@@ -3,7 +3,10 @@
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 library(dplyr)
 library(tibble)
+library(tidyr)
 library(SummarizedExperiment)
+library(DT)
+library(stringr)
 ```
 
 ## Baseline characteristics
@@ -116,9 +119,34 @@ cosine_df %>%
   ggpubr::ggpar(legend.title = "tissue type")
 ```
 
-## AD disease signature
-```{r}
+## AD differentially expressed genes at visit 1 {#ad-dge-v1}
+```{r ad-dge-v1}
+ad_de_v1 <- readr::read_csv("data/de_v1_sig.csv") %>% select(-direction)
 
+de_v1_c_d <- ad_de_v1 %>% 
+  select(gene_name, log2FoldChange, padj, contrast) %>% 
+  pivot_wider(names_from = contrast, values_from = c("log2FoldChange", "padj")) %>% 
+  arrange(-log2FoldChange_LSvsNL)
+
+t_container <- htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(rowspan = 2, 'Gene name'),
+      th(colspan = 3, 'log2 Fold Change'),
+      th(colspan = 3, 'Adjusted p-value')
+    ),
+    tr(
+      lapply(rep(c('LSvsNL', 'LSvsNN', "NLvsNN"), 2), th)
+    )
+  )
+))
+  
+datatable(de_v1_c_d, 
+          colnames = c("gene name", "LSvsNL", "LSvsNN", "NLvsNN", "LSvsNL", "LSvsNN", "NLvsNN"), container = t_container, rownames = FALSE,
+          options = list(pageLength = 20)) %>% 
+  formatRound(de_v1_c_d %>% colnames %>% str_extract("log2FoldChange_\\w{6}") %>% purrr::discard(is.na)) %>% 
+  formatSignif(de_v1_c_d %>% colnames %>% str_extract("padj_\\w{6}") %>% purrr::discard(is.na), digits = 3)
 ```
 
 

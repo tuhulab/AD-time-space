@@ -169,9 +169,6 @@ example_boxplot_heatmap_p
 
 We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (Table Sx). The skin transcriptome was enriched for (Fig-S1).
 
-
-
-
 ## Variance analysis
 
 IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC > NL > LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2).
@@ -249,7 +246,6 @@ psych::pairs.panels(se_krtap %>% assay(2) %>% log1p() %>% t())
 
 # clean the environment for parallel 
 # rm(list = ls()[ls() != "se"])
-
 # LS vs NL
 se_t_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
 de_t_LSvsNL <- DESeq2::DESeqDataSet(se_t_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)

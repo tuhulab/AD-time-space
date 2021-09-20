@@ -291,7 +291,7 @@ gs_list <- bplapply(gs_name, extract_msigdb_sub)
 names(gs_list) <- gs_name
 ```
 
-```{r fgsea}
+```{r fgsea, cache=TRUE}
 gse_exp <- 
   expand.grid(rank = names(ls_gsa), gs = names(gs_list)) %>% 
   tibble() %>% mutate(name = paste(gs, rank, sep = "_"))
@@ -303,13 +303,14 @@ gse_res <- purrr::map2(gse_exp$rank,
                            stats    = ls_gsa[[rank]],
                            minSize  = 15,
                            maxSize  = 500, eps = 0,
-                           BPPARAM = MulticoreParam(8)) %>% 
+                           BPPARAM = MulticoreParam(16)) %>% 
     as_tibble() %>% 
     mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank) %>% 
     filter(padj < .05)
 })
 
 names(gse_res) <- gse_exp$name
-# gse_res %>% saveRDS("data/gse_res.rds")
+
+gse_res %>% saveRDS("data/gse_res.rds")
 ```
 

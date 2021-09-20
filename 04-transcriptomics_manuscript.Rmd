@@ -82,7 +82,7 @@ We obtained `r ncol(se)` skin transcriptomes after data cleaning. The top three 
 ```{r heatmap-top-50, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
 se_heatmap <- se
 core_genes <- 
-  tibble(gene_name = readr::read_csv("data/dge_v1_sig.csv") %>% 
+  tibble(gene_name = readr::read_csv("data/de_v1_sig.csv") %>% 
   filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
   pull(gene_name)
 se_heatmap <- se_heatmap[core_genes[core_genes %in% rownames(se_heatmap)],]

@@ -48,7 +48,9 @@ baseline_disease_severity <-
 
 ### Baseline characteristics
 
-The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) `r baseline_disease_severity$mean_easi` and mean SCORing Atopic Dermatitis (SCORAD) `r baseline_disease_severity$mean_scorad`. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE. Individual data points were reported in the supplementary table.
+The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) `r baseline_disease_severity$mean_easi` and mean SCORing Atopic Dermatitis (SCORAD) `r baseline_disease_severity$mean_scorad`. 
+At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE (Table: \@ref(tab:baseline-statistics-table)). 
+Individual data points were reported in the supplementary table \@ref(tab:individual-data-table).
 
 ### Transcriptome architecture and components of AD
 
@@ -75,7 +77,7 @@ knitr::include_graphics("figure/pca3d.png")
 rm(list = ls()[!ls() %in% c("se", "se_krtap", "pca_color")])
 ```
 
-We obtained `r ncol(se)` skin transcriptomes after data cleaning. The top three principal components could separate the different tissue types (fig-\@ref(fig:PCA-3d-plot)). The heatmap showed AD lesional skins (LS) can be separated from AD non-lesional skins (NL) and healthy control skins (HC), but, NL and HC can't be separated (fig-\@ref(fig:heatmap-top-50)).
+We obtained `r ncol(se)` skin transcriptomes after data cleaning. The top three principal components could separate the different tissue types (fig-\@ref(fig:PCA-3d-plot)). The heatmap showed AD lesional skins (LS) can be separated from AD non-lesional skins (NL) and healthy control skins (HC), but, NL and HC can't be separated (fig-\@ref(fig:heatmap-top-50)). AD
 
 ```{r heatmap-top-50, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
 se_heatmap <- se
@@ -242,7 +244,7 @@ psych::pairs.panels(se_krtap %>% assay(2) %>% log1p() %>% t())
 
 ### Visit as time
 
-```{r model time (visit), cache=TRUE}
+```{r model time (visit), eval=FALSE, cache=TRUE}
 
 # clean the environment for parallel 
 # rm(list = ls()[ls() != "se"])
@@ -287,7 +289,7 @@ de_t_NLvsNN_res <-
   DESeq2::results(de_t_NLvsNN_m) %>% as_tibble())
 ```
 
-```{r model time(visit)-summary}
+```{r model time(visit)-summary, eval=FALSE}
 de_t_c_res <- 
   bind_rows(de_t_LSvsNL_res %>% mutate(contrast = "LSvsNL_v"),
             de_t_LSvsNN_res %>% mutate(contrast = "LSvsNN_v"),
@@ -302,7 +304,7 @@ de_t_c_res_s <-
 de_t_c_res_s
 ```
 
-```{r model time(visit)-vis}
+```{r model time(visit)-vis, eval=FALSE}
 heatmap_de_model <- 
   function(de_model){
     de_model_res <- 
@@ -342,7 +344,7 @@ heatmap_de_model(de_t_LSvsNN_m)
 heatmap_de_model(de_t_NLvsNN_m)
 ```
 
-```{r examples-time-effect}
+```{r examples-time-effect, eval=FALSE}
 SPAAR <- plotCounts(de_t_LSvsNL_m, 
                     gene = "SPAAR", 
                     c("skin_type", "visit"), returnData = TRUE)  %>% 
@@ -383,7 +385,7 @@ KRT9 %>%
 
 ### Quarter as time
 
-```{r model time(quarter), cache=TRUE}
+```{r model time(quarter), cache=TRUE, eval=FALSE}
 se <- se[, - which(is.na(se$visit_quarter))]
 se_q_LSvsNL <- se[, se$skin_type %in% c("LS", "NL")]
 se_q_LSvsNN <- se[, se$skin_type %in% c("LS", "NN")]
@@ -421,7 +423,7 @@ de_q_NLvsNN_res <-
   DESeq2::results(de_q_NLvsNN_m) %>% as_tibble())
 ```
 
-```{r model time(quarter)-summary}
+```{r model time(quarter)-summary, eval=FALSE}
 de_q_c_res <- 
   bind_rows(de_q_LSvsNL_res %>% mutate(contrast = "LSvsNL_q"),
             de_q_LSvsNN_res %>% mutate(contrast = "LSvsNN_q"),
@@ -436,14 +438,14 @@ de_q_c_res_s <-
 de_q_c_res_s
 ```
 
-```{r model time(quarter)-vis}
+```{r model time(quarter)-vis, eval=FALSE}
 heatmap_de_model(de_q_LSvsNN_m)
 heatmap_de_model(de_q_NLvsNN_m)
 ```
 
 ### Over-representation analysis
 
-```{r over-representation of time effect}
+```{r over-representation of time effect, eval=FALSE}
 setEnrichrSite("Enrichr")
 dbs <- c("GO_Molecular_Function_2021", 
          "GO_Cellular_Component_2021", 
@@ -464,7 +466,7 @@ enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 
 ### Consolidating biopsy area
 
-```{r biopsy_area barplot}
+```{r biopsy_area barplot, eval=FALSE}
 se %>% colData() %>% as_tibble() %>% 
   ggplot(aes(biopsy_area, fill = skin_type)) + 
   geom_bar() + 
@@ -473,27 +475,10 @@ se %>% colData() %>% as_tibble() %>%
   ggtitle("Biopsy area before consolidating")
 ```
 
-```{r consolidate biopsy_area}
-se_space <- se
-
-# consolidate biopsy_area info
-colData(se_space)$biopsy_area <- colData(se)$biopsy_area %>% 
-  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
-
-# readr::write_rds(se_space, "data/se_space.rds")
-
-#
-se_space %>% colData() %>% as_tibble() %>% 
-  ggplot(aes(biopsy_area, fill = skin_type)) + 
-  geom_bar() + 
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) +
-  ggtitle("Biopsy area after consolidating")
-```
-
 ### Variance Partition
 
 ```{r vp_biopsy_area, cache=TRUE}
+se_space <- se
 se_space_500 <- se_space %>% keep_variable()
 vp_space_500 <- variancePartition::fitExtractVarPartModel(
     assay(se_space_500, 2), 
@@ -552,7 +537,7 @@ biopsy_area_results <-
   mutate(contrast = contrast %>% str_remove("biopsy_area_"))
 ```
 
-```{r DGE space - DT vis}
+```{r DGE space - DT vis, eval=FALSE}
 biopsy_area_results %>% 
   datatable() %>% 
   formatRound(2:4) %>% 

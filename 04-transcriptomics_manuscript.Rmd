@@ -666,7 +666,8 @@ variancePartition::plotVarPart(vp_500)
 
 ```{r VP core gene, cache=TRUE}
 # se_core <- readr::read_rds("data/se_core.rds")
-se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name)), ]
+de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
+se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique), ]
 vp_core <- variancePartition::fitExtractVarPartModel(
     assay(se_core, 2), 
     ~ (1|skin_type) + (1|subject) + (1|visit_quarter) + (1|gender), 
@@ -742,7 +743,7 @@ linc_vp_P <- ggpubr::ggdotchart(
 
 ```
 
-```{r}
+```{r eval=FALSE}
 vp_core_t <- 
   vp_core %>% 
   data.frame() %>% 
@@ -754,14 +755,14 @@ vp_core <- de_v1_c_d %>%
 
 ```
 
-```{r analyze individual factor}
+```{r analyze individual factor, eval=FALSE}
 vp_core_t %>% 
   filter(skin_type > .05, subject > .05) %>% 
   mutate(skin_type_subject_ratio = skin_type / (subject + .01)) %>% 
   arrange(skin_type_subject_ratio)
 ```
 
-```{r boxplot - individual}
+```{r boxplot - individual, eval=FALSE}
 boxplot_individual_d <- se %>% 
   filter(feature %in% c("DOK7", "PSG5", "IGHA2", "PDZD7"))
 
@@ -776,7 +777,7 @@ boxplot_individual_p <-
 boxplot_individual_p
 ```
 
-```{r}
+```{r eval=FALSE}
 vp_container <- htmltools::withTags(table(
   class = 'display',
   thead(

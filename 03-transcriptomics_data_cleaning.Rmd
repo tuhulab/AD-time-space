@@ -247,7 +247,7 @@ de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
 
 ## Visit 1: gene set analysis
 
-```{r gsa-prepare-data}
+```{r gsa-prepare-data, cache=TRUE}
 ls_gsa <- 
   as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)_result$") %>% lapply(get)) %>% 
   purrr::map(function(df){
@@ -260,7 +260,7 @@ names(ls_gsa) <-
   str_extract("(LS|NL)vs(NL|NN)")
 ```
 
-```{r prepare gene set}
+```{r prepare gene set, cache=TRUE}
 # prepare gs --------------
 fun_extract_g_symbol <- function(gene_df){
   gene_df %>% pull(gene_symbol)

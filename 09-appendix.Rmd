@@ -3,6 +3,7 @@
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, 
                       echo = FALSE)
+library(dplyr)
 ```
 
 ## QC and Data Curation

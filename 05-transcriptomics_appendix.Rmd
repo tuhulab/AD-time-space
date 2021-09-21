@@ -7,6 +7,7 @@ library(tidyr)
 library(SummarizedExperiment)
 library(DT)
 library(stringr)
+library(ggpubr)
 ```
 
 ## Baseline characteristics
@@ -82,7 +83,6 @@ knitr::kable(clinic_summary_t,
   kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test.")
 ```
 
-
 ```{r individual-data-table}
 individual_data <- 
   baseline_data %>% arrange(subject) %>% select(-ige_200_h) %>% 
@@ -150,17 +150,40 @@ datatable(de_v1_c_d,
 ```
 
 ## Visit 1: gene set enrichment analysis
-```{r}
+```{r load gsea results}
 gse <- readr::read_rds("data/gse_res.rds")
 names(gse)
 ```
 
+### Enrichment of AD disease signatures
+```{r ad-signature, fig.width=8}
+gse_df <- gse %>% purrr::map_dfr(~.x) %>% 
+  filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                        "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",
+                        "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                        "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY",
+                        "GOBP_KERATINOCYTE_DIFFERENTIATION")) %>% 
+  mutate(log10p = -log10(padj))
+
+gse_df %>% 
+  ggbarplot(x = "pathway", y = "NES", ylab = "Normalized enrichment score", xlab = "") %>% 
+  facet("contrast", nrow = 2) %>% 
+  ggpar(rotate = TRUE)
+
+```
+
+
 ### Transcription factor and microRNA targets
 ```{r gsea-regulatory}
-gse_reg <- gse[grep("MIR|TFT", names(gse), value=T)] %>% purrr::map_dfr(~.x)
+gse_reg <- 
+  gse[grep("MIR|TFT", names(gse), value=T)] %>% purrr::map_dfr(~.x) %>% 
+  bind_rows(gse[grep("CP:PID", names(gse), value =T)] %>% purrr::map_dfr(~.x) %>% 
+              filter(pathway == "PID_P73PATHWAY"))
+
+
 gse_reg %>% 
   select(gene_set = pathway, padj, NES, contrast) %>% 
-  arrange(-NES) %>% 
+  arrange(contrast) %>% 
   mutate(padj = signif(padj, digits = 2), 
          NES = round(NES, digits = 2),
          link = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/", gene_set, ".html")) %>% 

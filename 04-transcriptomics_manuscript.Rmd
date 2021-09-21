@@ -48,9 +48,7 @@ baseline_disease_severity <-
 
 ### Baseline characteristics
 
-The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) `r baseline_disease_severity$mean_easi` and mean SCORing Atopic Dermatitis (SCORAD) `r baseline_disease_severity$mean_scorad`. 
-At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE (Table: \@ref(tab:baseline-statistics-table)). 
-Individual data points were reported in the supplementary table \@ref(tab:individual-data-table).
+The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) `r baseline_disease_severity$mean_easi` and mean SCORing Atopic Dermatitis (SCORAD) `r baseline_disease_severity$mean_scorad`. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE (Table: \@ref(tab:baseline-statistics-table)). Individual data points were reported in the supplementary table \@ref(tab:individual-data-table).
 
 ### Transcriptome architecture and components of AD
 
@@ -161,25 +159,26 @@ example_boxplot_heatmap_p
 
 ## Baseline
 
-We generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (\@ref(ad-dge-v1)). 
+Differential gene expression analysis generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (\@ref(ad-dge-v1)).
 
-### Gene set enrichment analysis
-The skin transcriptome was enriched for (Fig-S1).
-
-We also identified enrichment of transcription factor targets and microRNA targets, including MAML1 (related with NOTCH signaling), PSMB5, and TRIP13 target genes; MIR6768_5P, MIR6833_3P, MIR6873_3P targets ((Table: \@ref(tab:gsea-regulatory))).
+Gene set enrichment analysis (GSEA) revealed that the skin transcriptome was enriched for cytokine and chemokine mediated inflammation, abnormal skin differentiation and barrier pertubation. We also identified enrichment of transcription factor targets and microRNA targets, including TP73, MAML1 (related with NOTCH signaling), PSMB5, TRIP13, MIR6768_5P, MIR6833_3P, and MIR6873_3P targets ((Table: \@ref(tab:gsea-regulatory))).
 
 ## Variance analysis
 
-IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC > NL > LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2).
+### Disease
+IL37 was the best explained cytokine family gene. IL37 showed a decrease trend in HC \> NL \> LS. We also observed a few long noncoding RNA (lincRNA) with high variance can be explained by AD (Fig 2).
+
+### Individual
+
 
 ### Time Effect plays a minor role in transcriptome variation
 
 Likelihood Ratio Test (LRT) results showed no genes reacted in the condition-specific manner over time, compared to baseline samples.
 
-
 I first fit a `full model` (`~ subject + time + tissue_type + tissue_type * time`), then a `reduced model` (`~ subject + time + tissue_type`) by imposing `tissue_type * time` as the constraint.
 
 ### Hair variance
+
 ```{r generate heatmap for krtap, eval=FALSE}
 KRTAP_filt_d <- 
   se_krtap %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
@@ -237,7 +236,6 @@ draw(heatmap, heatmap_legend_side = "right",
 ```{r eval=FALSE}
 psych::pairs.panels(se_krtap %>% assay(2) %>% log1p() %>% t())
 ```
-
 
 ### Visit as time
 
@@ -536,7 +534,6 @@ biopsy_area_results %>%
 
 ```
 
-
 ## Cell Type Deconvolution
 
 ```{r MuSic, cache=TRUE}
@@ -655,13 +652,13 @@ variancePartition::plotVarPart(vp)
 ```
 
 ```{r vp500, eval=FALSE}
-se_500 <- se %>% keep_variable()
-vp_500 <- variancePartition::fitExtractVarPartModel(
+se_vary <- se %>% keep_variable(top = 1000)
+vp_vary <- variancePartition::fitExtractVarPartModel(
     assay(se_500, 2), 
     ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
-    colData(se_500) %>% as_tibble()
+    colData(se_vary) %>% as_tibble()
     )
-variancePartition::plotVarPart(vp_500)
+variancePartition::plotVarPart(vp_vary)
 ```
 
 ```{r VP core gene, cache=TRUE}

@@ -651,7 +651,7 @@ vp <-
 variancePartition::plotVarPart(vp)
 ```
 
-```{r vp500, eval=FALSE}
+```{r vp_vary_100_3000, eval=FALSE}
 
 vp_vary_100_3000 <- 
   lapply(seq(from = 100, to = 3000, by = 100), function(top_gene){
@@ -659,11 +659,11 @@ vp_vary_100_3000 <-
   vp_vary <- variancePartition::fitExtractVarPartModel(
     assay(se_vary, 2), 
     ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
-    colData(se_vary) %>% as_tibble()
+    colData(se_vary) %>% as_tibble(), 
+    BPPARAM = MulticoreParam(future::availableCores() - 2)
     )
   return(vp_vary)
 })
-
 
 
 variancePartition::plotVarPart(vp_vary)

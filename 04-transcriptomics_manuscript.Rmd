@@ -642,14 +642,28 @@ multiomics_results_vis_two_sample
 ## Variance Partition (to work)
 
 ```{r vpall, eval=FALSE}
-vp <- 
+vp_all <- 
   variancePartition::fitExtractVarPartModel(
-    assay(se, 2), 
-    ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
+    scale(assay(se, 2) %>% t() %>% log1p(), 
+      center = TRUE, scale = TRUE) %>% t(),
+    ~ (1|sequencing_batch) + scorad + easi_total_score + 
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit),    
     colData(se) %>% as_tibble()
     )
-variancePartition::plotVarPart(vp)
+variancePartition::plotVarPart(vp_all)
 ```
+
+```{r}
+top_rna_quality_g <-
+  vp_all %>% as_tibble(rownames = "gene_name") %>% 
+  slice_max(rna_quality, n = 10) %>% pull(gene_name)
+
+se[top_rna_quality_g,] %>% 
+  ggplot(aes(x = rna_quality, y = counts_scaled)) +
+  geom_boxplot() + facet_wrap("feature", scales = "free")
+```
+
 
 ```{r vp_vary_100_3000, eval=FALSE}
 
@@ -665,26 +679,27 @@ vp_vary_100_3000 <-
   return(vp_vary)
 })
 
+lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
 
-variancePartition::plotVarPart(vp_vary)
 ```
 
 ```{r VP core gene, cache=TRUE}
 # se_core <- readr::read_rds("data/se_core.rds")
 de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
 se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique), ]
+# se_core <- readr::read_rds("data/se_core.rds")
 vp_core <- variancePartition::fitExtractVarPartModel(
-    assay(se_core, 2), 
-    ~ (1|skin_type) + (1|subject) + (1|visit_quarter) + (1|gender), 
-    colData(se_core) %>% as_tibble()
-    )
-# readr::write_rds(se_core, "data/se_core.rds")
-# readr::write_rds(vp_core, "data/vp_core.rds")
+    # assay(se_core, 2), 
+    # assay(se_core, 2) %>% t() %>% scale() %>% t() %>% log1p(),
+    scale(assay(se, 2) %>% t() %>% log1p(), 
+      center = TRUE, scale = TRUE) %>% t(),
+    ~ (1|sequencing_batch) + scorad + easi_total_score + (1|skin_type) + (1|subject) + (1|visit_quarter) + (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit), 
+    colData(se) %>% as_tibble()
+)
 
-variancePartition::plotVarPart(vp_core)
+# p_vpcore <- 
+  variancePartition::plotVarPart(vp_core)
 
-variancePartition::plotPercentBars(
-  head(vp_core[order(vp_core$skin_type, decreasing = TRUE),], 15))
 
 # cytokine
 cytokine_vp <- vp_core %>% 

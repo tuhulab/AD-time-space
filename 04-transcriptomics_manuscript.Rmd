@@ -686,15 +686,21 @@ lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
 ```{r VP core gene, cache=TRUE}
 # se_core <- readr::read_rds("data/se_core.rds")
 de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
-se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique), ]
+
+se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique), 
+              which(se$rna_quality == "high")]
+
 # se_core <- readr::read_rds("data/se_core.rds")
 vp_core <- variancePartition::fitExtractVarPartModel(
     # assay(se_core, 2), 
     # assay(se_core, 2) %>% t() %>% scale() %>% t() %>% log1p(),
-    scale(assay(se, 2) %>% t() %>% log1p(), 
+    scale(assay(se_core, 2) %>% t() %>% log1p(), 
       center = TRUE, scale = TRUE) %>% t(),
-    ~ (1|sequencing_batch) + scorad + easi_total_score + (1|skin_type) + (1|subject) + (1|visit_quarter) + (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit), 
-    colData(se) %>% as_tibble()
+    ~ (1|sequencing_batch) + scorad + easi_total_score + 
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area) + (1|visit),
+    # + (1|rna_quality) , 
+    colData(se_core) %>% as_tibble()
 )
 
 # p_vpcore <- 

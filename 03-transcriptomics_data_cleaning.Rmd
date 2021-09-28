@@ -192,7 +192,7 @@ se_KRTAP_filt <-
   filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
 ```
 
-```{r write out data}
+```{r write out data, eval=FALSE}
 readr::write_rds(se, "data/se.rds")
 readr::write_rds(se_KRTAP_filt, "data/se_krtap.rds")
 ```

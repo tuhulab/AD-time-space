@@ -547,8 +547,6 @@ assay(se_scaled) <- NULL
 multiomics <- 
   as(se_scaled, "ExpressionSet")
 
-
-
 # Construct ExpressionSet for scRNA-seq
 emma_guttman <- readRDS(
   url("https://gitcdn.link/repo/tuhulab/cell-type-deconvolute/main/data/emma-gutmann/ExpressionSet.rds")
@@ -641,11 +639,26 @@ multiomics_results_vis_two_sample
 
 ## Variance Partition (to work)
 
-```{r vpall, eval=FALSE}
+```{r transforming data}
+library(limma)
+library(edgeR)
+# se <- readr::read_rds("data/se.rds")
+
+isexpr <- rowSums(cpm(se)>1) >= 0.5 * ncol(se)
+seExpr <- se[isexpr,]
+seExpr <- calcNormFactors(seExpr)
+design <- model.matrix(~ skin_type, seExpr$samples)
+vobj <- voom(seExpr, design)
+```
+
+
+
+```{r vpall, cache=TRUE}
 vp_all <- 
   variancePartition::fitExtractVarPartModel(
-    scale(assay(se, 2) %>% t() %>% log1p(), 
-      center = TRUE, scale = TRUE) %>% t(),
+    # scale(assay(se, 2) %>% t() %>% log1p(), 
+    #   center = TRUE, scale = TRUE) %>% t(),
+    vobj,
     ~ (1|sequencing_batch) + scorad + easi_total_score + 
       (1|skin_type) + (1|subject) + (1|visit_quarter) + 
       (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit),    
@@ -667,19 +680,19 @@ se[top_rna_quality_g,] %>%
 
 ```{r vp_vary_100_3000, eval=FALSE}
 
-vp_vary_100_3000 <- 
-  lapply(seq(from = 100, to = 3000, by = 100), function(top_gene){
-  se_vary <- se %>% keep_variable(top = top_gene)
-  vp_vary <- variancePartition::fitExtractVarPartModel(
-    assay(se_vary, 2), 
-    ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
-    colData(se_vary) %>% as_tibble(), 
-    BPPARAM = MulticoreParam(future::availableCores() - 2)
-    )
-  return(vp_vary)
-})
-
-lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
+# vp_vary_100_3000 <- 
+#   lapply(seq(from = 100, to = 3000, by = 100), function(top_gene){
+#   se_vary <- se %>% keep_variable(top = top_gene)
+#   vp_vary <- variancePartition::fitExtractVarPartModel(
+#     assay(se_vary, 2), 
+#     ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
+#     colData(se_vary) %>% as_tibble(), 
+#     BPPARAM = MulticoreParam(future::availableCores() - 2)
+#     )
+#   return(vp_vary)
+# })
+# 
+# lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
 
 ```
 
@@ -687,36 +700,56 @@ lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
 # se_core <- readr::read_rds("data/se_core.rds")
 de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
 
-se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique), 
-              which(se$rna_quality == "high")]
+se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique),
+              which(se$rna_quality %in% c("high"))]
+
+
+seExpr_core <- calcNormFactors(se_core)
+design_core <- model.matrix(~ skin_type, seExpr_core$samples)
+vobj_core <- voom(seExpr_core, design_core)
+
 
 # se_core <- readr::read_rds("data/se_core.rds")
 vp_core <- variancePartition::fitExtractVarPartModel(
-    # assay(se_core, 2), 
+    # assay(se_core, 2),
+    vobj_core,
     # assay(se_core, 2) %>% t() %>% scale() %>% t() %>% log1p(),
-    scale(assay(se_core, 2) %>% t() %>% log1p(), 
-      center = TRUE, scale = TRUE) %>% t(),
-    ~ (1|sequencing_batch) + scorad + easi_total_score + 
+    # scale(assay(se_core, 2) %>% t() %>% log1p(), 
+      # center = TRUE, scale = TRUE) %>% t(),
+    ~ (1|sequencing_batch) +
+      scorad + easi_total_score +
       (1|skin_type) + (1|subject) + (1|visit_quarter) + 
       (1|gender) + (1|biopsy_area) + (1|visit),
     # + (1|rna_quality) , 
     colData(se_core) %>% as_tibble()
 )
 
-# p_vpcore <- 
-  variancePartition::plotVarPart(vp_core)
+# names(vp_core)[1] <- "anatomic area"
+# names(vp_core)[3] <- "sequencing batch"
+# names(vp_core)[4] <- "tissue type (LS/NL/HC)"
+# names(vp_core)[5] <- "individual"
+# names(vp_core)[7] <- "quarter"
+# names(vp_core)[8] <- "SCORAD"
+# names(vp_core)[9] <- "EASI"
+# names(vp_core)[10] <- "unexplained"
 
+# vpcore_violin <-
+#   variancePartition::plotVarPart(vp_core)
+
+vp_core_t <- vp_core %>% as_tibble(rownames = "gene_name")
+  # pivot_longer(!gene_name, names_to = "term", values_to = "var")
+
+# vp_core_t %>% ggviolin(x = "term", y = "var")
 
 # cytokine
-cytokine_vp <- vp_core %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "gene_name") %>% 
+cytokine_vp <- 
+  vp_core_t %>% 
   filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
   arrange(-skin_type) %>% 
   pivot_longer(cols = !gene_name, names_to = "term") %>% 
   filter(term == "skin_type") %>% 
-  mutate(var_explained = round(value * 100, 2)) %>% 
-  filter(var_explained > 10)
+  mutate(var_explained = round(value * 100, 2))
+  # filter(var_explained > 10)
 
 cytokine_vp_P <- ggpubr::ggdotchart(
   cytokine_vp, x = "gene_name", y = "var_explained",
@@ -765,21 +798,17 @@ linc_vp_P <- ggpubr::ggdotchart(
 # png("figure/vp_linc.png", width = 480*4, height= 480*2.5, res = 300)
 # linc_vp_P
 # dev.off()
-
-
 ```
 
-```{r eval=FALSE}
-vp_core_t <- 
-  vp_core %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "gene_name") %>% tibble()
+```{r disease severity}
+top_scorad_g <- vp_core_t %>% slice_max(scorad, n = 10) %>% pull(gene_name)
 
-vp_core <- de_v1_c_d %>%   
-  left_join(vp_core_t %>% select(gene_name, skin_type) %>% rename(var_explained = skin_type)) %>% 
-  mutate(var_explained)
-
+# top_scorad_x <- 
+  se_core[top_scorad_g, ] %>% 
+  ggplot(aes(scorad, counts_scaled)) + geom_point() +
+    facet_wrap("feature")
 ```
+
 
 ```{r analyze individual factor, eval=FALSE}
 vp_core_t %>% 
@@ -790,7 +819,7 @@ vp_core_t %>%
 
 ```{r boxplot - individual, eval=FALSE}
 boxplot_individual_d <- se %>% 
-  filter(feature %in% c("DOK7", "PSG5", "IGHA2", "PDZD7"))
+  filter(feature %in% c("DOK7", "PSG5", "IGHA2", "PDZD7", "IL34"))
 
 boxplot_individual_p <-
   boxplot_individual_d %>% as_tibble() %>% 

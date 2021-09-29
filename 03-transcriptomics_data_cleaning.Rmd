@@ -315,6 +315,8 @@ names(gse_res) <- gse_exp$name
 
 ```{r fgsea-vis}
 # fgsea_vis <- 
+
+gse_res_filt <- 
   gse_res %>% 
   mutate(log10p = -log10(padj)) %>% 
   filter(pathway %in% c("PID_IL12_2PATHWAY",
@@ -332,7 +334,9 @@ names(gse_res) <- gse_exp$name
                         "GOBP_T_CELL_PROLIFERATION",
                         "GOBP_KERATINOCYTE_DIFFERENTIATION",
                         "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS")) %>% 
+                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS")) 
+
+gse_res_filt %>% 
   ggplot(aes(contrast, pathway, size = log10p, color = NES)) + 
   geom_point() +
   scale_size_area(max_size = 5) + 
@@ -346,6 +350,21 @@ gse_res %>% group_by(gs) %>% summarise(n = n())
 
 ```
 
+```{r card short description}
+gse_res_filt_query <-
+  gse_res_filt %>% select(pathway) %>% 
+  distinct() %>% 
+  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                      pathway,
+                      ".html"))
+
+brief_description <-
+  lapply(gse_res_filt_query$url, function(url){
+    url %>% xml2::read_html() %>% 
+      rvest::html_node(css = "tr:nth-child(3) td") %>% rvest::html_text()}
+)
+
+```
 
 
 

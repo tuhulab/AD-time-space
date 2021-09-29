@@ -329,8 +329,9 @@ gse_res_filt <-
                         "GOBP_T_CELL_PROLIFERATION",
                         "GOBP_KERATINOCYTE_DIFFERENTIATION",
                         "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS") | 
-           pathway %>% str_detect("REACTOME_INTERLEUKIN")) %>% 
+                        "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS")  
+           # pathway %>% str_detect("REACTOME_INTERLEUKIN")
+         ) %>% 
   group_by(pathway, gs) %>% nest() %>% 
   mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
                       pathway,
@@ -353,7 +354,7 @@ gse_res_filt <-
                    "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
                    "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
     pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
-                   "GOBP_LIPID_BIOSYNTHETIC_PROCESS") ~ "skin barrier function",
+                   "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS") ~ "skin barrier function",
     pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
                    "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
                    "GOBP_INFLAMMATORY_RESPONSE",

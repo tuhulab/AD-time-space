@@ -139,8 +139,8 @@ draw(heatmap, heatmap_legend_side = "right",
 
 ```{r example-boxplot-heatmap}
 example_boxplot_heatmap <- 
-  se %>% 
-  filter(feature %in% c("IL22", "IL37", "TNFRSF21", "LINC01605", "OSM", "OSMR"))
+  se[c("IL22", "IL37", "TNFRSF21", "LINC01605", "OSMR"),]
+
 
 example_boxplot_heatmap_p <-
   example_boxplot_heatmap %>% as_tibble() %>% 

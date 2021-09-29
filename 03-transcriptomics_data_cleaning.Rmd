@@ -242,22 +242,21 @@ de_v1_c %>% readr::write_csv("data/de_v1_sig.csv")
 de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
                    de_v1_NLvsNN = de_v1_NLvsNN_result)
-de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+# de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
 ```
 
 ## Visit 1: gene set analysis
 
 ```{r gsa-prepare-data, cache=TRUE}
 ls_gsa <- 
-  as.list(ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)_result$") %>% lapply(get)) %>% 
+  de_v1_full %>% 
   purrr::map(function(df){
     df <- 
-      df %>% mutate(rank = log2FoldChange) %>% 
+      df %>% filter(padj < .05) %>% 
+      mutate(rank = log2FoldChange) %>% 
       select(gene_name, rank) %>% 
       deframe()})
-names(ls_gsa) <- 
-  ls(pattern = "^de_v1_(LS|NL)vs(NL|NN)_result$") %>%
-  str_extract("(LS|NL)vs(NL|NN)")
+
 ```
 
 ```{r prepare gene set, cache=TRUE}
@@ -296,14 +295,14 @@ gse_exp <-
   expand.grid(rank = names(ls_gsa), gs = names(gs_list)) %>% 
   tibble() %>% mutate(name = paste(gs, rank, sep = "_"))
 
-gse_res <- purrr::map2(gse_exp$rank,
+gse_res <- purrr::map2_dfr(gse_exp$rank,
                            gse_exp$gs,
             function(rank, gs){
   gsa_stat <- fgsea::fgsea(pathways = gs_list[[gs]], 
                            stats    = ls_gsa[[rank]],
                            minSize  = 15,
                            maxSize  = 500, eps = 0,
-                           BPPARAM = MulticoreParam(16)) %>% 
+                           BPPARAM = MulticoreParam(future::availableCores() - 2)) %>% 
     as_tibble() %>% 
     mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank) %>% 
     filter(padj < .05)
@@ -311,6 +310,42 @@ gse_res <- purrr::map2(gse_exp$rank,
 
 names(gse_res) <- gse_exp$name
 
-gse_res %>% saveRDS("data/gse_res.rds")
+# gse_res %>% saveRDS("data/gse_res.rds")
 ```
+
+```{r fgsea-vis}
+# fgsea_vis <- 
+  gse_res %>% 
+  mutate(log10p = -log10(padj)) %>% 
+  filter(pathway %in% c("PID_IL12_2PATHWAY",
+                        "PID_IL4_2PATHWAY",
+                        "KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                        "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                        "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                        # "GOBP_KERATINIZATION",
+                        # "REACTOME_ANTIMICROBIAL_PEPTIDES",
+                        "REACTOME_INTERLEUKIN_10_SIGNALING",
+                        "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", 
+                        "WP_CHEMOKINE_SIGNALING_PATHWAY",
+                        "GOBP_INFLAMMATORY_RESPONSE",
+                        "GOBP_T_CELL_ACTIVATION",
+                        "GOBP_T_CELL_PROLIFERATION",
+                        "GOBP_KERATINOCYTE_DIFFERENTIATION",
+                        "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS")) %>% 
+  ggplot(aes(contrast, pathway, size = log10p, color = NES)) + 
+  geom_point() +
+  scale_size_area(max_size = 5) + 
+  scale_color_gradient(low="pink", high="red") +
+  theme_bw() +
+  facet_grid(gs~., scales = "free")
+```
+
+```{r}
+gse_res %>% group_by(gs) %>% summarise(n = n())
+
+```
+
+
+
 

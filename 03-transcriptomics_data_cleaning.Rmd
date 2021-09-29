@@ -308,14 +308,13 @@ gse_res <- purrr::map2_dfr(gse_exp$rank,
     filter(padj < .05)
 })
 
-names(gse_res) <- gse_exp$name
-
 # gse_res %>% saveRDS("data/gse_res.rds")
 ```
 
 ```{r fgsea-vis}
 # fgsea_vis <- 
-  gse_res %>% 
+
+gse_res %>% 
   mutate(log10p = -log10(padj)) %>% 
   filter(pathway %in% c("PID_IL12_2PATHWAY",
                         "PID_IL4_2PATHWAY",

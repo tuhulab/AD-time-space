@@ -15,9 +15,7 @@ library(ComplexHeatmap)
 library(DT)
 library(BiocParallel)
 library(DESeq2)
-library(enrichR)
 library(ggpubr)
-library(MuSiC)
 library(Biobase)
 library(convert)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
@@ -252,7 +250,8 @@ ls_gsa <-
   de_v1_full %>% 
   purrr::map(function(df){
     df <- 
-      df %>% filter(padj < .05) %>% 
+      df %>% 
+      # filter(padj < .05) %>%
       mutate(rank = log2FoldChange) %>% 
       select(gene_name, rank) %>% 
       deframe()})
@@ -292,7 +291,7 @@ names(gs_list) <- gs_name
 
 ```{r fgsea, cache=TRUE}
 gse_exp <- 
-  expand.grid(rank = names(ls_gsa), gs = names(gs_list)) %>% 
+  expand.grid(rank = names(ls_gsa) %>% str_remove("de_v1_"), gs = names(gs_list)) %>% 
   tibble() %>% mutate(name = paste(gs, rank, sep = "_"))
 
 gse_res <- purrr::map2_dfr(gse_exp$rank,
@@ -304,8 +303,8 @@ gse_res <- purrr::map2_dfr(gse_exp$rank,
                            maxSize  = 500, eps = 0,
                            BPPARAM = MulticoreParam(future::availableCores() - 2)) %>% 
     as_tibble() %>% 
-    mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank) %>% 
-    filter(padj < .05)
+    mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank)
+    # filter(padj < .05)
 })
 
 # gse_res %>% saveRDS("data/gse_res.rds")
@@ -314,36 +313,67 @@ gse_res <- purrr::map2_dfr(gse_exp$rank,
 ```{r fgsea-vis}
 # fgsea_vis <- 
 
-gse_res %>% 
+gse_res_filt <-
+  gse_res %>% 
   mutate(log10p = -log10(padj)) %>% 
-  filter(pathway %in% c("PID_IL12_2PATHWAY",
-                        "PID_IL4_2PATHWAY",
-                        "KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+  filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
                         "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
                         "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                        "PID_IL23_PATHWAY",
                         # "GOBP_KERATINIZATION",
                         # "REACTOME_ANTIMICROBIAL_PEPTIDES",
                         "REACTOME_INTERLEUKIN_10_SIGNALING",
                         "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", 
-                        "WP_CHEMOKINE_SIGNALING_PATHWAY",
                         "GOBP_INFLAMMATORY_RESPONSE",
                         "GOBP_T_CELL_ACTIVATION",
                         "GOBP_T_CELL_PROLIFERATION",
                         "GOBP_KERATINOCYTE_DIFFERENTIATION",
                         "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS")) %>% 
-  ggplot(aes(contrast, pathway, size = log10p, color = NES)) + 
+                        "GOBP_LIPID_BIOSYNTHETIC_PROCESS") | 
+           pathway %>% str_detect("REACTOME_INTERLEUKIN")) %>% 
+  group_by(pathway, gs) %>% nest() %>% 
+  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                      pathway,
+                      ".html"),
+         des = map_chr(url, 
+                   function(url){
+                     url %>% xml2::read_html() %>% 
+                       rvest::html_node(css = "tr:nth-child(3) td") %>%
+                       rvest::html_text()}),
+         des = ifelse(gs == "GO:BP", 
+                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
+                      des)) %>% 
+  unnest() %>% 
+  mutate(cat = case_when(
+    pathway %in% c("PID_IL23_PATHWAY",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                   "REACTOME_INTERLEUKIN_10_SIGNALING",
+                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
+                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
+                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
+    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
+                   "GOBP_LIPID_BIOSYNTHETIC_PROCESS") ~ "skin barrier function",
+    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                   "GOBP_INFLAMMATORY_RESPONSE",
+                   "GOBP_T_CELL_ACTIVATION",
+                   "GOBP_T_CELL_PROLIFERATION") ~ "immune response"))
+
+gse_res_filt_p <- 
+  gse_res_filt %>% 
+  ggplot(aes(contrast, des, size = log10p, color = NES)) + 
   geom_point() +
   scale_size_area(max_size = 5) + 
-  scale_color_gradient(low="pink", high="red") +
+  scale_color_gradient2(low="blue", mid = "white", high="red", ) +
   theme_bw() +
-  facet_grid(gs~., scales = "free")
+  facet_grid(cat~., scales = "free") +
+  theme(axis.title = element_blank())
+
+gse_res_filt_p
 ```
 
-```{r}
-gse_res %>% group_by(gs) %>% summarise(n = n())
 
-```
 
 
 

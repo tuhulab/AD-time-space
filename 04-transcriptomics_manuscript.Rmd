@@ -20,11 +20,11 @@ library(ComplexHeatmap)
 library(DT)
 library(BiocParallel)
 library(DESeq2)
-library(enrichR)
 library(ggpubr)
 library(MuSiC)
 library(Biobase)
 library(convert)
+library(variancePartition)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
 register(MulticoreParam(future::availableCores() - 2))
@@ -677,25 +677,6 @@ se[top_rna_quality_g,] %>%
   geom_boxplot() + facet_wrap("feature", scales = "free")
 ```
 
-
-```{r vp_vary_100_3000, eval=FALSE}
-
-# vp_vary_100_3000 <- 
-#   lapply(seq(from = 100, to = 3000, by = 100), function(top_gene){
-#   se_vary <- se %>% keep_variable(top = top_gene)
-#   vp_vary <- variancePartition::fitExtractVarPartModel(
-#     assay(se_vary, 2), 
-#     ~ (1|skin_type) + (1|subject) + (1|visit) + (1|gender), 
-#     colData(se_vary) %>% as_tibble(), 
-#     BPPARAM = MulticoreParam(future::availableCores() - 2)
-#     )
-#   return(vp_vary)
-# })
-# 
-# lapply(vp_vary_100_3000[1:30], variancePartition::plotVarPart)
-
-```
-
 ```{r VP core gene, cache=TRUE}
 # se_core <- readr::read_rds("data/se_core.rds")
 de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
@@ -724,22 +705,22 @@ vp_core <- variancePartition::fitExtractVarPartModel(
     colData(se_core) %>% as_tibble()
 )
 
-# names(vp_core)[1] <- "anatomic area"
-# names(vp_core)[3] <- "sequencing batch"
-# names(vp_core)[4] <- "tissue type (LS/NL/HC)"
-# names(vp_core)[5] <- "individual"
-# names(vp_core)[7] <- "quarter"
-# names(vp_core)[8] <- "SCORAD"
-# names(vp_core)[9] <- "EASI"
-# names(vp_core)[10] <- "unexplained"
+vp_core_p <- vp_core
+names(vp_core_p)[1] <- "anatomic area"
+names(vp_core_p)[3] <- "sequencing batch"
+names(vp_core_p)[4] <- "tissue type (LS/NL/HC)"
+names(vp_core_p)[5] <- "individual"
+names(vp_core_p)[7] <- "quarter"
+names(vp_core_p)[8] <- "SCORAD"
+names(vp_core_p)[9] <- "EASI"
+names(vp_core_p)[10] <- "unexplained"
 
-# vpcore_violin <-
-#   variancePartition::plotVarPart(vp_core)
+source("R/plot.R")
+
+vpcore_violin <-
+  plotVarPart_internal(vp_core_p) + theme(plot.margin = margin(.5, 1, 0, 2, "cm"))
 
 vp_core_t <- vp_core %>% as_tibble(rownames = "gene_name")
-  # pivot_longer(!gene_name, names_to = "term", values_to = "var")
-
-# vp_core_t %>% ggviolin(x = "term", y = "var")
 
 # cytokine
 cytokine_vp <- 
@@ -799,6 +780,32 @@ linc_vp_P <- ggpubr::ggdotchart(
 # linc_vp_P
 # dev.off()
 ```
+
+
+```{r}
+top_cytokine <-
+  cytokine_vp %>% filter(term == "skin_type") %>% 
+  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
+
+top_cytokine_p <- 
+  se[top_cytokine,] %>% as_tibble() %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", scale = "free", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14), nrow = 1) +
+  yscale("log10")
+
+png("figure/vp_cytokine_boxplot.png", width = 480*6, height= 480*2, res = 300)
+top_cytokine_p
+dev.off()
+
+```
+
+
+
+
+
 
 ```{r disease severity}
 top_scorad_g <- vp_core_t %>% slice_max(scorad, n = 10) %>% pull(gene_name)

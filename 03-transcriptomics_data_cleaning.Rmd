@@ -246,8 +246,12 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
 ## Visit 1: gene set analysis
 
 ```{r gsa-prepare-data, cache=TRUE}
+gse121212 <- readr::read_rds("../gse121212/data/DGE_full_model.rds")
+gse121212_l <- gse121212$res_shrink
+names(gse121212_l) <- gse121212$contrast
+
 ls_gsa <- 
-  de_v1_full %>% 
+  c(de_v1_full, gse121212_l) %>% 
   purrr::map(function(df){
     df <- 
       df %>% 
@@ -292,20 +296,24 @@ names(gs_list) <- gs_name
 ```{r fgsea, cache=TRUE}
 gse_exp <- 
   expand.grid(rank = names(ls_gsa) %>% str_remove("de_v1_"), gs = names(gs_list)) %>% 
-  tibble() %>% mutate(name = paste(gs, rank, sep = "_"))
+  tibble() %>% mutate(name = paste(gs, rank, sep = "_"), 
+                      project = case_when(rank %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
+                                          TRUE ~ "gse121212"))
 
 gse_res <- purrr::map2_dfr(gse_exp$rank,
                            gse_exp$gs,
             function(rank, gs){
   gsa_stat <- fgsea::fgsea(pathways = gs_list[[gs]], 
                            stats    = ls_gsa[[rank]],
-                           minSize  = 15,
+                           minSize  = 8,
                            maxSize  = 500, eps = 0,
-                           BPPARAM = MulticoreParam(future::availableCores() - 2)) %>% 
+                           BPPARAM = MulticoreParam(future::availableCores() - 4)) %>% 
     as_tibble() %>% 
     mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank)
     # filter(padj < .05)
-})
+}) %>% 
+  mutate(project = case_when(contrast %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
+                             TRUE ~ "gse121212"))
 
 # gse_res %>% saveRDS("data/gse_res.rds")
 ```
@@ -315,22 +323,23 @@ gse_res <- purrr::map2_dfr(gse_exp$rank,
 
 gse_res_filt <-
   gse_res %>% 
-  mutate(log10p = -log10(padj)) %>% 
+  mutate(`-log10p` = -log10(padj)) %>% 
   filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
                         "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
                         "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-                        "PID_IL23_PATHWAY",
+                        # "PID_IL23_PATHWAY",
                         # "GOBP_KERATINIZATION",
                         # "REACTOME_ANTIMICROBIAL_PEPTIDES",
                         "REACTOME_INTERLEUKIN_10_SIGNALING",
                         "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", 
+                        # "REACTOME_INTERLEUKIN_17_SIGNALING",
                         "GOBP_INFLAMMATORY_RESPONSE",
                         "GOBP_T_CELL_ACTIVATION",
                         "GOBP_T_CELL_PROLIFERATION",
                         "GOBP_KERATINOCYTE_DIFFERENTIATION",
                         "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                        "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS")  
-           # pathway %>% str_detect("REACTOME_INTERLEUKIN")
+                        "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS")  | 
+           pathway %>% str_detect("REACTOME_INTERLEUKIN")
          ) %>% 
   group_by(pathway, gs) %>% nest() %>% 
   mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
@@ -359,17 +368,18 @@ gse_res_filt <-
                    "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
                    "GOBP_INFLAMMATORY_RESPONSE",
                    "GOBP_T_CELL_ACTIVATION",
-                   "GOBP_T_CELL_PROLIFERATION") ~ "immune response"))
+                   "GOBP_T_CELL_PROLIFERATION") ~ "immune response",
+    TRUE ~ "signal transduction"))
 
 gse_res_filt_p <- 
   gse_res_filt %>% 
-  ggplot(aes(contrast, des, size = log10p, color = NES)) + 
+  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
   geom_point() +
-  scale_size_area(max_size = 5) + 
-  scale_color_gradient2(low="blue", mid = "white", high="red", ) +
+  scale_size_area(max_size = 6) + 
+  scale_color_gradient2(low="blue", mid = "white", high="red") +
   theme_bw() +
-  facet_grid(cat~., scales = "free") +
-  theme(axis.title = element_blank())
+  facet_grid(cat~project, scales = "free", space = "free") +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
 
 gse_res_filt_p
 ```

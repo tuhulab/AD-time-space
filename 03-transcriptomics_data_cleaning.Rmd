@@ -1,25 +1,17 @@
 # Skin transcriptome data cleaning
 
 ## Data cleaning
-```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
-library(tibble)
-library(dplyr)
-library(tidyr)
-library(readr)
-library(stringr)
-library(ggplot2)
-library(purrr)
-library(tidybulk)
-library(tidySummarizedExperiment)
-library(ComplexHeatmap)
-library(DT)
-library(BiocParallel)
-library(DESeq2)
-library(ggpubr)
-library(Biobase)
-library(convert)
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
-register(MulticoreParam(future::availableCores() - 2))
+```{r initiate data cleaning, echo=FALSE, message=FALSE, warning=FALSE}
+pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
+               tidybulk, tidySummarizedExperiment, 
+               ComplexHeatmap, ggpubr,
+               BiocParallel, Biobase, variancePartition,
+               DESeq2, limma, edgeR, MuSiC, convert, 
+               patchwork)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
+pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
+core_n <- future::availableCores()
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
 ```
 
 ```{r load data}
@@ -245,143 +237,93 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
 
 ## Gene set enrichment analysis
 
-```{r gsa-prepare-data, cache=TRUE}
+```{r dge result}
+de_v1_full <- readr::read_rds("data/de_v1_full.rds")
 gse121212 <- readr::read_rds("https://rawcdn.githack.com/tuhulab/gse121212/0ba93240d13b753bf32fd0aab0841fb6968b0ea5/data/DGE_full_model.rds")
-gse121212_l <- gse121212$res_shrink
-names(gse121212_l) <- gse121212$contrast
-ls_gsa <- 
-  c(de_v1_full, gse121212_l) %>% 
-  purrr::map(function(df){
-    df <- 
-      df %>% 
-      # filter(padj < .05) %>%
-      mutate(rank = log2FoldChange) %>% 
-      select(gene_name, rank) %>% 
-      deframe()})
-
+dge_result <-
+  tibble(
+    project = c(rep("multi-omics",length(de_v1_full)), 
+                rep("gse121212",nrow(gse121212))),
+    contrast = c(de_v1_full %>% names, gse121212$contrast),
+    dge_result = c(de_v1_full, gse121212$res_shrink)
+)
 ```
+
 
 ```{r prepare gene set, cache=TRUE}
 # prepare gs --------------
-fun_extract_g_symbol <- function(gene_df){
-  gene_df %>% pull(gene_symbol)
-}
-
-extract_msigdb_sub <- function(subcat){
+gs <- 
+  tibble(gs_name = c("CP:BIOCARTA", 
+                     "CP:KEGG", 
+                     "CP:PID", 
+                     "CP:REACTOME", 
+                     "CP:WIKIPATHWAYS", 
+                     "MIR:MIRDB", 
+                     "TFT:GTRD", 
+                     "GO:BP", 
+                     "GO:MF")) %>% 
+  mutate(gs_list = map(gs_name, function(subcat){
   gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
                             subcategory = subcat) %>% 
     group_by(gs_name) %>% tidyr::nest() %>% 
-    mutate(gene_id = purrr::map(data, fun_extract_g_symbol)) %>% select(-data)
+    mutate(gene_id = purrr::map(data, ~ .x %>% pull(gene_symbol))) %>% select(-data)
   gs_list <- gs_df$gene_id
   names(gs_list) <- gs_df$gs_name
   return(gs_list)
-}
-
-gs_name <-
-  c("CP:BIOCARTA", 
-    "CP:KEGG", 
-    "CP:PID", 
-    "CP:REACTOME", 
-    "CP:WIKIPATHWAYS", 
-    "MIR:MIRDB", 
-    "TFT:GTRD", 
-    "GO:BP", 
-    "GO:MF", 
-    "IMMUNESIGDB")
-gs_list <- bplapply(gs_name, extract_msigdb_sub)
-names(gs_list) <- gs_name
+}))
 ```
 
 ```{r fgsea, cache=TRUE}
+gsea_exp <- 
+  expand.grid(contrast = dge_result$contrast,
+              gs_name = gs$gs_name) %>% 
+  left_join(dge_result, by = "contrast") %>% 
+  left_join(gs, by = "gs_name") %>% 
+  mutate(rank = map2(dge_result, gs_name,
+                     function(dge_result, gs_name){
+                       p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
+                                                         "TFT:GTRD"),
+                                          .05,
+                                          1)
+                       log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
+                                                        "TFT:GTRD"),
+                                               1,
+                                               0)
+                       dge_result %>% 
+                         mutate(rank = log2FoldChange) %>% 
+                         filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
+                         select(gene_name, rank) %>% deframe}),
+         gse_res = map2_dfr(rank, gs_list,
+                            function(rank, gs_list){
+                              gsa_stat <- fgsea::fgsea(pathways = gs_list, 
+                                                       stats    = rank,
+                                                       minSize  = 8,
+                                                       maxSize  = 500, 
+                                                       eps = 0, 
+                                                       BPPARAM = MulticoreParam(workers = core_n - 4)) %>% 
+                            as_tibble()
+}))
+
+test <- gsea_exp %>% select(contrast, gs_name, project, rank_n)
+
 gse_exp <- 
-  expand.grid(rank = names(ls_gsa) %>% str_remove("de_v1_"), gs = names(gs_list)) %>% 
-  tibble() %>% mutate(name = paste(gs, rank, sep = "_"), 
-                      project = case_when(rank %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
-                                          TRUE ~ "gse121212"))
+  expand.grid(rank = names(ls_gsa) %>% str_remove("de_v1_"), 
+              gs = names(gs_list)) %>% 
+  tibble() %>% 
+  mutate(name = paste(gs, rank, sep = "_"), 
+         project = case_when(rank %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
+                             TRUE ~ "gse121212"))
 
 gse_res <- purrr::map2_dfr(gse_exp$rank,
                            gse_exp$gs,
-            function(rank, gs){
-  gsa_stat <- fgsea::fgsea(pathways = gs_list[[gs]], 
-                           stats    = ls_gsa[[rank]],
-                           minSize  = 8,
-                           maxSize  = 500, eps = 0,
-                           BPPARAM = MulticoreParam(future::availableCores() - 4)) %>% 
-    as_tibble() %>% 
-    mutate(name = paste(gs, rank, sep = "_"), gs = gs, contrast = rank)
-    # filter(padj < .05)
-}) %>% 
+) %>% 
   mutate(project = case_when(contrast %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
                              TRUE ~ "gse121212"))
 
 # gse_res %>% saveRDS("data/gse_res.rds")
 ```
 
-```{r fgsea-vis}
-# fgsea_vis <- 
 
-gse_res_filt <-
-  gse_res %>% 
-  mutate(`-log10p` = -log10(padj)) %>% 
-  filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
-                        "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-                        "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-                        # "PID_IL23_PATHWAY",
-                        # "GOBP_KERATINIZATION",
-                        # "REACTOME_ANTIMICROBIAL_PEPTIDES",
-                        "REACTOME_INTERLEUKIN_10_SIGNALING",
-                        "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", 
-                        # "REACTOME_INTERLEUKIN_17_SIGNALING",
-                        "GOBP_INFLAMMATORY_RESPONSE",
-                        "GOBP_T_CELL_ACTIVATION",
-                        "GOBP_T_CELL_PROLIFERATION",
-                        "GOBP_KERATINOCYTE_DIFFERENTIATION",
-                        "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                        "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS")  | 
-           pathway %>% str_detect("REACTOME_INTERLEUKIN")
-         ) %>% 
-  group_by(pathway, gs) %>% nest() %>% 
-  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
-                      pathway,
-                      ".html"),
-         des = map_chr(url, 
-                   function(url){
-                     url %>% xml2::read_html() %>% 
-                       rvest::html_node(css = "tr:nth-child(3) td") %>%
-                       rvest::html_text()}),
-         des = ifelse(gs == "GO:BP", 
-                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
-                      des)) %>% 
-  unnest() %>% 
-  mutate(cat = case_when(
-    pathway %in% c("PID_IL23_PATHWAY",
-                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-                   "REACTOME_INTERLEUKIN_10_SIGNALING",
-                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
-                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
-                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
-    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
-                   "GOBP_REGULATION_OF_LIPID_BIOSYNTHETIC_PROCESS") ~ "skin barrier function",
-    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
-                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-                   "GOBP_INFLAMMATORY_RESPONSE",
-                   "GOBP_T_CELL_ACTIVATION",
-                   "GOBP_T_CELL_PROLIFERATION") ~ "immune response",
-    TRUE ~ "signal transduction"))
-
-gse_res_filt_p <- 
-  gse_res_filt %>% 
-  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
-  geom_point() +
-  scale_size_area(max_size = 6) + 
-  scale_color_gradient2(low="blue", mid = "white", high="red") +
-  theme_bw() +
-  facet_grid(cat~project, scales = "free", space = "free") +
-  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
-
-gse_res_filt_p
-```
 
 
 

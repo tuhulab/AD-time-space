@@ -25,6 +25,9 @@ library(MuSiC)
 library(Biobase)
 library(convert)
 library(variancePartition)
+library(limma)
+library(edgeR)
+library(patchwork)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
 register(MulticoreParam(future::availableCores() - 2))
@@ -63,8 +66,8 @@ attr(PCA, "internals")$PCA %>%
   pca3d::pca3d(group = PCA$skin_type, col = pca_color, radius = 1.5, 
                shape = "s", 
                show.plane = FALSE)
-rgl::snapshot3d("figure/pca3d.png", fmt="png")
-rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
+# rgl::snapshot3d("figure/pca3d.png", fmt="png")
+# rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
 ```
 
 ```{r PCA-3d-plot, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
@@ -137,27 +140,6 @@ draw(heatmap, heatmap_legend_side = "right",
 # dev.off()
 ```
 
-```{r example-boxplot-heatmap}
-example_boxplot_heatmap <- 
-  se[c("IL22", "IL37", "TNFRSF21", "LINC01605", "OSMR"),]
-
-
-example_boxplot_heatmap_p <-
-  example_boxplot_heatmap %>% as_tibble() %>% 
-  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
-            facet.by = "feature", scale = "free", xlab = FALSE,
-            ylab = FALSE, color = "skin_type", 
-            palette = pca_color, legend.title = "",
-            font.legend = c(14))
-
-example_boxplot_heatmap_p
-
-# png("figure/IL22_37_TNFRSF21_LINC01605.png", width = 480*4, height = 480*4,res = 300)
-# IL22_37_TNFRSF21_LINC01605_p
-# dev.off()
-```
-
-## Baseline
 
 Differential gene expression analysis generated AD disease signature which consists of `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNL")` (LS vs NL), `r knitr::load_cache("DGE-V1", "n_de_v1_LSvsNN")` (LS vs HC), and `r knitr::load_cache("DGE-V1", "n_de_v1_NLvsNN")` (NL vs HC) differentially expressed genes (\@ref(ad-dge-v1)).
 
@@ -637,23 +619,14 @@ multiomics_results_vis_two_sample
 
 ```
 
-## Variance Partition (to work)
-
-```{r transforming data}
-library(limma)
-library(edgeR)
+## Variance Partition
+```{r vpall, cache=TRUE}
 # se <- readr::read_rds("data/se.rds")
-
 isexpr <- rowSums(cpm(se)>1) >= 0.5 * ncol(se)
 seExpr <- se[isexpr,]
 seExpr <- calcNormFactors(seExpr)
 design <- model.matrix(~ skin_type, seExpr$samples)
 vobj <- voom(seExpr, design)
-```
-
-
-
-```{r vpall, cache=TRUE}
 vp_all <- 
   variancePartition::fitExtractVarPartModel(
     # scale(assay(se, 2) %>% t() %>% log1p(), 
@@ -667,44 +640,31 @@ vp_all <-
 variancePartition::plotVarPart(vp_all)
 ```
 
-```{r}
-top_rna_quality_g <-
-  vp_all %>% as_tibble(rownames = "gene_name") %>% 
-  slice_max(rna_quality, n = 10) %>% pull(gene_name)
-
-se[top_rna_quality_g,] %>% 
-  ggplot(aes(x = rna_quality, y = counts_scaled)) +
-  geom_boxplot() + facet_wrap("feature", scales = "free")
-```
-
-```{r VP core gene, cache=TRUE}
-# se_core <- readr::read_rds("data/se_core.rds")
+```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
+# transform data for linear modeling
+se <- readr::read_rds("data/se.rds")
 de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
-
 se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique),
               which(se$rna_quality %in% c("high"))]
-
-
 seExpr_core <- calcNormFactors(se_core)
 design_core <- model.matrix(~ skin_type, seExpr_core$samples)
 vobj_core <- voom(seExpr_core, design_core)
 
 
-# se_core <- readr::read_rds("data/se_core.rds")
+# perform VP analysis
 vp_core <- variancePartition::fitExtractVarPartModel(
-    # assay(se_core, 2),
     vobj_core,
-    # assay(se_core, 2) %>% t() %>% scale() %>% t() %>% log1p(),
-    # scale(assay(se_core, 2) %>% t() %>% log1p(), 
-      # center = TRUE, scale = TRUE) %>% t(),
     ~ (1|sequencing_batch) +
       scorad + easi_total_score +
       (1|skin_type) + (1|subject) + (1|visit_quarter) + 
       (1|gender) + (1|biopsy_area) + (1|visit),
-    # + (1|rna_quality) , 
     colData(se_core) %>% as_tibble()
 )
+vp_core_t <- 
+  vp_core %>% 
+  as_tibble(rownames = "gene_name")
 
+# plot 1 - violin
 vp_core_p <- vp_core
 names(vp_core_p)[1] <- "anatomic area"
 names(vp_core_p)[3] <- "sequencing batch"
@@ -714,15 +674,12 @@ names(vp_core_p)[7] <- "quarter"
 names(vp_core_p)[8] <- "SCORAD"
 names(vp_core_p)[9] <- "EASI"
 names(vp_core_p)[10] <- "unexplained"
-
 source("R/plot.R")
-
 vpcore_violin <-
-  plotVarPart_internal(vp_core_p) + theme(plot.margin = margin(.5, 1, 0, 2, "cm"))
+  plotVarPart_internal(vp_core_p) + 
+  theme(plot.margin = margin(.5, .5, .5, 2, "cm"))
 
-vp_core_t <- vp_core %>% as_tibble(rownames = "gene_name")
-
-# cytokine
+# plot 2 - cytokine dot plot
 cytokine_vp <- 
   vp_core_t %>% 
   filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
@@ -730,8 +687,6 @@ cytokine_vp <-
   pivot_longer(cols = !gene_name, names_to = "term") %>% 
   filter(term == "skin_type") %>% 
   mutate(var_explained = round(value * 100, 2))
-  # filter(var_explained > 10)
-
 cytokine_vp_P <- ggpubr::ggdotchart(
   cytokine_vp, x = "gene_name", y = "var_explained",
   color = "#FC4E07",
@@ -739,69 +694,76 @@ cytokine_vp_P <- ggpubr::ggdotchart(
   sorting = "descending",
   rotate = TRUE, 
   add = "segments",
-  # label = IL_vp$value,
-  # font.label = list(color = "white", size = 3, vjust = 0.5),
   ggtheme = ggpubr::theme_pubr(),
   dot.size = 4,
   ylab = "Var% explained by atopic dermatitis tissue"
 )
 
-# LINC
-linc_vp <- vp_core %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "gene_name") %>% 
+# plot 3 - top cytokine boxplot
+top_cytokine <-
+  cytokine_vp %>% filter(term == "skin_type") %>% 
+  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
+top_cytokine_boxplot <-
+  se[top_cytokine,] %>% as_tibble() %>% 
+  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14), nrow = 1, yscale = "log10") +
+  stat_compare_means()
+
+# consolidate 3 plots
+vp_core_p <- 
+  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P) + 
+  plot_annotation(tag_levels = "a") & 
+                  theme(plot.tag = element_text(face = "bold"))
+vp_core_p
+
+# save the plot (Not execuate)
+# png("figure/vp_core.png", width = 480*20, height= 480*12, res = 600)
+# var_part_p
+# dev.off()
+```
+
+```{r vp - linc genes, dpi=600, fig.height=8}
+# LINC dotplot
+linc_vp <- 
+  vp_core_t %>% 
   filter(gene_name %>% str_detect("^LINC")) %>% 
   arrange(-skin_type) %>% 
   pivot_longer(cols = !gene_name, names_to = "term") %>% 
   filter(term == "skin_type") %>% 
   mutate(var_explained = round(value * 100, 2)) %>% 
   slice_max(order_by = var_explained, n = 15)
-
-linc_vp_P <- ggpubr::ggdotchart(
+linc_vp_P <- 
+  ggpubr::ggdotchart(
   linc_vp, x = "gene_name", y = "var_explained",
   color = "#FC4E07",
   xlab = "",
   sorting = "descending",
   rotate = TRUE, 
   add = "segments",
-  # label = IL_vp$value,
-  # font.label = list(color = "white", size = 3, vjust = 0.5),
   ggtheme = ggpubr::theme_pubr(),
   dot.size = 4,
   ylab = "Var% explained by atopic dermatitis tissue"
 )
 
-# output
-# png("figure/vp_cytokine.png", width = 480*4, height= 480*4, res = 300)
-# cytokine_vp_P
-# dev.off()
-# 
-# png("figure/vp_linc.png", width = 480*4, height= 480*2.5, res = 300)
-# linc_vp_P
-# dev.off()
-```
-
-
-```{r}
-top_cytokine <-
-  cytokine_vp %>% filter(term == "skin_type") %>% 
-  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
-
-top_cytokine_p <- 
-  se[top_cytokine,] %>% as_tibble() %>% 
+# LINC boxplot
+top_linc <- linc_vp %>% pull(gene_name) %>% head(5)
+top_linc_boxplot <-
+  se[top_linc,] %>% as_tibble() %>% 
+  mutate(feature = feature %>% forcats::fct_relevel(top_linc)) %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
-            facet.by = "feature", scale = "free", xlab = FALSE,
+            facet.by = "feature", xlab = FALSE,
             ylab = FALSE, color = "skin_type", 
             palette = pca_color, legend.title = "",
-            font.legend = c(14), nrow = 1) +
-  yscale("log10")
+            font.legend = c(14), nrow = 1, yscale = "log10") +
+  stat_compare_means()
 
-png("figure/vp_cytokine_boxplot.png", width = 480*6, height= 480*2, res = 300)
-top_cytokine_p
-dev.off()
-
+# aggregate
+linc_vp_P / top_linc_boxplot
 ```
-
 
 
 

@@ -1,30 +1,369 @@
----
-title: "04-transcriptomics_figure.Rmd"
-author: "Tu Hu"
-date: "10/1/2021"
-output: html_document
----
+# Skin transcriptome figure
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r initiate transcriptomics figures, echo=FALSE, message=FALSE, warning=FALSE}
+pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
+               tidybulk, tidySummarizedExperiment, 
+               ComplexHeatmap, ggpubr,
+               BiocParallel, Biobase, variancePartition,
+               DESeq2, limma, edgeR, MuSiC, convert, 
+               patchwork)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
+pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
+core_n <- future::availableCores()
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
 ```
 
-## R Markdown
+## PCA and heatmap
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+### PCA
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r pca}
+# load data
+se <- readr::read_rds("data/se.rds")
 
-```{r cars}
-summary(cars)
+# dimension reduction
+PCA <- se %>% reduce_dimensions(method = "PCA", top = 350)
+PCA_d <- attr(PCA, "internals")$PCA
 ```
 
-## Including Plots
+```{r pca vis, eval=FALSE}
+pca3d::pca3d(PCA_d, group = PCA$skin_type, 
+             col = pca_color, radius = 1.5, 
+             shape = "s", 
+             show.plane = FALSE)
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+# save figure
+# rgl::snapshot3d("figure/pca3d.png", fmt="png")
+# rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r pca show vis, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
+knitr::include_graphics("figure/pca3d.png")
+```
+
+### Heatmap
+```{r heatmap-top-50, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
+se_heatmap <- se
+core_genes <- 
+  tibble(gene_name = readr::read_csv("data/de_v1_sig.csv", show_col_types = FALSE) %>% 
+  filter(contrast == "LSvsNL") %>% pull(gene_name)) %>% 
+  pull(gene_name)
+se_heatmap <- se_heatmap[core_genes[core_genes %in% rownames(se_heatmap)],]
+heatmap_data <- 
+  se_heatmap %>% 
+  keep_variable(.abundance = counts_scale,
+                top = 50)
+heatmap_data_m <-
+  scale(assay(heatmap_data, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+sample_site_color <- 
+  colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
+    `Sampling site` = colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Sampling site` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        # title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 9)),
+                                   `Sampling site` = list(nrow = 1,
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          # title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 9))
+                                   ))
+
+heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = min(10, 800 * 1.5 / dim(heatmap_data_m)[1])),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 14),
+                          labels_gp = gpar(fontsize = 12)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+
+# poster 480*8.1.5 480*10*1.5
+# png("figure/heatmap.png", width = 480*8, height = 480*10, res=300)
+# draw(heatmap, heatmap_legend_side = "right",
+#      annotation_legend_side = "top", merge_legend = FALSE)
+# dev.off()
+```
+
+
+## Gene set enrichment analysis
+
+```{r gsea-vis}
+gsea_res <- readr::read_rds("data/gsea_res.rds")
+
+# gene set regulatory
+gs_r <- gsea_res %>% filter((gs_name %in% c("MIR:MIRDB", "TFT:GTRD") & padj < .05 & project == "multi-omics") | 
+                              (pathway %>% str_detect("PID_P\\d{1,}")) & padj < .05 ) %>% pull(pathway) %>% unique()
+
+# gene set ad related
+gs_ad <- gsea_res %>% filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                                            "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                                            "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                                            "REACTOME_INTERLEUKIN_10_SIGNALING",
+                                            "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", 
+                                            "GOBP_INFLAMMATORY_RESPONSE",
+                                            "GOBP_T_CELL_ACTIVATION",
+                                            "GOBP_T_CELL_PROLIFERATION",
+                                            "GOBP_KERATINOCYTE_DIFFERENTIATION",
+                                            "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                                            "GOBP_LIPID_HOMEOSTASIS") & padj < .05 | 
+                               pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05) %>% pull(pathway) %>% unique()
+gsea_res_filt <-
+  gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
+  group_by(pathway, gs_name) %>% nest() %>% 
+  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                      pathway,
+                      ".html"),
+         des = map_chr(url, 
+                   function(url){
+                     url %>% xml2::read_html() %>% 
+                       rvest::html_node(css = "tr:nth-child(3) td") %>%
+                       rvest::html_text()}),
+         des = ifelse(gs_name == "GO:BP", # add description
+                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
+                      des),
+         des = ifelse(gs_name %in% c("MIR:MIRDB", "TFT:GTRD"),
+                      pathway %>% str_replace("_TARGET_GENES", " target genes"),
+                      des)) %>% 
+  unnest()
+
+gsea_ad_p <- 
+  gsea_res_filt %>% filter(pathway %in% gs_ad) %>% 
+  mutate(cat = case_when(
+    pathway %in% c("PID_IL23_PATHWAY",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                   "REACTOME_INTERLEUKIN_10_SIGNALING",
+                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
+                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
+                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
+    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
+                   "GOBP_LIPID_HOMEOSTASIS") ~ "skin barrier function",
+    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                   "GOBP_INFLAMMATORY_RESPONSE",
+                   "GOBP_T_CELL_ACTIVATION",
+                   "GOBP_T_CELL_PROLIFERATION") ~ "immune response",
+    TRUE ~ "signal transduction")) %>% 
+  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
+  geom_point() +
+  scale_size_area(max_size = 6) + 
+  scale_color_gradient2(low="blue", mid = "white", high="red") +
+  theme_bw() +
+  facet_grid(cat~project, scales = "free", space = "free") +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
+
+gsea_ad_p
+
+# png("figure/gsea_ad.png", width = 480*4, height = 480*4, res = 300)
+# gsea_ad_p
+# dev.off()
+```
+
+
+## Variance analysis
+
+```{r vpall, cache=TRUE}
+# se <- readr::read_rds("data/se.rds")
+isexpr <- rowSums(cpm(se)>1) >= 0.5 * ncol(se)
+seExpr <- se[isexpr,]
+seExpr <- calcNormFactors(seExpr)
+design <- model.matrix(~ skin_type, seExpr$samples)
+vobj <- voom(seExpr, design)
+vp_all <- 
+  variancePartition::fitExtractVarPartModel(
+    # scale(assay(se, 2) %>% t() %>% log1p(), 
+    #   center = TRUE, scale = TRUE) %>% t(),
+    vobj,
+    ~ (1|sequencing_batch) + scorad + easi_total_score + 
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit),    
+    colData(se) %>% as_tibble()
+    )
+variancePartition::plotVarPart(vp_all)
+```
+
+```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
+# transform data for linear modeling
+# se <- readr::read_rds("data/se.rds")
+de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
+se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique),
+              which(se$rna_quality %in% c("high"))]
+seExpr_core <- calcNormFactors(se_core)
+design_core <- model.matrix(~ skin_type, seExpr_core$samples)
+vobj_core <- voom(seExpr_core, design_core)
+
+
+# perform VP analysis
+vp_core <- variancePartition::fitExtractVarPartModel(
+    vobj_core,
+    ~ (1|sequencing_batch) +
+      scorad + easi_total_score +
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area) + (1|visit),
+    colData(se_core) %>% as_tibble()
+)
+vp_core_t <- 
+  vp_core %>% 
+  as_tibble(rownames = "gene_name")
+
+# plot 1 - violin
+vp_core_p <- vp_core
+names(vp_core_p)[1] <- "anatomic area"
+names(vp_core_p)[3] <- "sequencing batch"
+names(vp_core_p)[4] <- "tissue type (LS/NL/HC)"
+names(vp_core_p)[5] <- "individual"
+names(vp_core_p)[7] <- "quarter"
+names(vp_core_p)[8] <- "SCORAD"
+names(vp_core_p)[9] <- "EASI"
+names(vp_core_p)[10] <- "unexplained"
+source("R/plot.R")
+vpcore_violin <-
+  plotVarPart_internal(vp_core_p) + 
+  theme(plot.margin = margin(.5, .5, .5, 2, "cm"))
+
+# plot 2 - cytokine dot plot
+cytokine_vp <- 
+  vp_core_t %>% 
+  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
+  arrange(-skin_type) %>% 
+  pivot_longer(cols = !gene_name, names_to = "term") %>% 
+  filter(term == "skin_type") %>% 
+  mutate(var_explained = round(value * 100, 2))
+cytokine_vp_P <- ggpubr::ggdotchart(
+  cytokine_vp, x = "gene_name", y = "var_explained",
+  color = "#FC4E07",
+  xlab = "",
+  sorting = "descending",
+  rotate = TRUE, 
+  add = "segments",
+  ggtheme = ggpubr::theme_pubr(),
+  dot.size = 4,
+  ylab = "Var% explained by atopic dermatitis tissue"
+)
+
+# plot 3 - top cytokine boxplot
+top_cytokine <-
+  cytokine_vp %>% filter(term == "skin_type") %>% 
+  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
+top_cytokine_boxplot <-
+  se[top_cytokine,] %>% as_tibble() %>% 
+  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14), nrow = 1, yscale = "log10") +
+  stat_compare_means()
+
+# consolidate 3 plots
+vp_core_p <- 
+  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P) + 
+  plot_annotation(tag_levels = "a") & 
+                  theme(plot.tag = element_text(face = "bold"))
+vp_core_p
+
+# save the plot (Not execuate)
+# png("figure/vp_core.png", width = 480*20, height= 480*12, res = 600)
+# var_part_p
+# dev.off()
+```
+
+
+
+## Hair
+
+## Regulatory elements
+
+```{r gsea - regulatory elements}
+gsea_r_p <- 
+  gsea_res_filt %>% filter(pathway %in% gs_r) %>% 
+  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
+  geom_point() +
+  scale_size_area(max_size = 6) + 
+  scale_color_gradient2(low="blue", mid = "white", high="red") +
+  theme_bw() +
+  facet_grid(~project, scales = "free", space = "free") +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
+
+# png("figure/gsea_r.png", width = 480*4, height = 480*3, res = 300)
+# gsea_r_p
+# dev.off()
+```
+
+```{r vp - LINC}
+topLINC <- 
+  vp_core_t %>% filter(gene_name %>% str_detect("LINC")) %>% 
+  slice_max(skin_type, n = 10) %>% pull(gene_name)
+
+LINC_vp_P <- 
+  vp_core_t %>% filter(gene_name %in% topLINC) %>% 
+  pivot_longer(cols = !gene_name, names_to = "term") %>% 
+  filter(term == "skin_type") %>% 
+  mutate(var_explained = round(value * 100, 2)) %>% 
+  ggpubr::ggdotchart(
+  x = "gene_name", y = "var_explained",
+  color = "#FC4E07",
+  xlab = "",
+  sorting = "descending",
+  rotate = TRUE, 
+  add = "segments",
+  ggtheme = ggpubr::theme_pubr(),
+  dot.size = 4,
+  ylab = "Var% explained by atopic dermatitis tissue"
+)
+```
+
+```{r boxplot - LINC}
+topLINC_boxplot <-
+  se[topLINC,] %>% as_tibble() %>% 
+  mutate(feature = feature %>% forcats::fct_relevel(topLINC)) %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", xlab = FALSE,
+            ylab = FALSE, color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14), nrow = 2, yscale = "log10")
+  # stat_compare_means()
+```
+
+```{r aggregate plot, dpi=600, fig.width=12}
+regulatory_p <- 
+  ((gsea_r_p / LINC_vp_P) | topLINC_boxplot) + 
+  plot_annotation(tag_levels = "a") & 
+                  theme(plot.tag = element_text(face = "bold"))
+regulatory_p
+
+# save the plot (Not execuate)
+# png("figure/regulatory_p.png", width = 480*20, height= 480*12, res = 600)
+# regulatory_p
+# dev.off()
+```
+
+
+## Anatomic region
+
+## Cell deconvolution
+
+
+
+
+
+
+

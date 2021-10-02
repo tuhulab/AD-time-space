@@ -283,17 +283,17 @@ gsea_exp <-
                      function(dge_result, gs_name){
                        p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
                                                          "TFT:GTRD"),
-                                          .05,
+                                          1, # .05
                                           1)
                        log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
                                                         "TFT:GTRD"),
-                                               1,
+                                               0, # 1
                                                0)
                        dge_result %>% 
                          mutate(rank = log2FoldChange) %>% 
                          filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
                          select(gene_name, rank) %>% deframe}),
-         gse_res = map2_dfr(rank, gs_list,
+         gse_res = map2(rank, gs_list,
                             function(rank, gs_list){
                               gsa_stat <- fgsea::fgsea(pathways = gs_list, 
                                                        stats    = rank,
@@ -304,23 +304,8 @@ gsea_exp <-
                             as_tibble()
 }))
 
-test <- gsea_exp %>% select(contrast, gs_name, project, rank_n)
-
-gse_exp <- 
-  expand.grid(rank = names(ls_gsa) %>% str_remove("de_v1_"), 
-              gs = names(gs_list)) %>% 
-  tibble() %>% 
-  mutate(name = paste(gs, rank, sep = "_"), 
-         project = case_when(rank %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
-                             TRUE ~ "gse121212"))
-
-gse_res <- purrr::map2_dfr(gse_exp$rank,
-                           gse_exp$gs,
-) %>% 
-  mutate(project = case_when(contrast %in% c("LSvsNL", "LSvsNN", "NLvsNN") ~ "multi-omics",
-                             TRUE ~ "gse121212"))
-
-# gse_res %>% saveRDS("data/gse_res.rds")
+gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
+# gsea_res %>% saveRDS("data/gsea_res.rds")
 ```
 
 

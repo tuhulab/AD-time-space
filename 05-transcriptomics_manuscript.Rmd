@@ -7,30 +7,16 @@
 ## Results
 
 ```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
-library(tibble)
-library(dplyr)
-library(tidyr)
-library(readr)
-library(stringr)
-library(ggplot2)
-library(purrr)
-library(tidybulk)
-library(tidySummarizedExperiment)
-library(ComplexHeatmap)
-library(DT)
-library(BiocParallel)
-library(DESeq2)
-library(ggpubr)
-library(MuSiC)
-library(Biobase)
-library(convert)
-library(variancePartition)
-library(limma)
-library(edgeR)
-library(patchwork)
+pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
+               tidybulk, tidySummarizedExperiment, 
+               ComplexHeatmap, ggpubr,
+               BiocParallel, Biobase, variancePartition,
+               DESeq2, limma, edgeR, MuSiC, convert, 
+               patchwork)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
-register(MulticoreParam(future::availableCores() - 2))
+core_n <- future::availableCores()
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
 ```
 
 ```{r load data}
@@ -619,112 +605,7 @@ multiomics_results_vis_two_sample
 
 ```
 
-## Variance Partition
-```{r vpall, cache=TRUE}
-# se <- readr::read_rds("data/se.rds")
-isexpr <- rowSums(cpm(se)>1) >= 0.5 * ncol(se)
-seExpr <- se[isexpr,]
-seExpr <- calcNormFactors(seExpr)
-design <- model.matrix(~ skin_type, seExpr$samples)
-vobj <- voom(seExpr, design)
-vp_all <- 
-  variancePartition::fitExtractVarPartModel(
-    # scale(assay(se, 2) %>% t() %>% log1p(), 
-    #   center = TRUE, scale = TRUE) %>% t(),
-    vobj,
-    ~ (1|sequencing_batch) + scorad + easi_total_score + 
-      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
-      (1|gender) + (1|biopsy_area) + (1|rna_quality) + (1|visit),    
-    colData(se) %>% as_tibble()
-    )
-variancePartition::plotVarPart(vp_all)
-```
 
-```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
-# transform data for linear modeling
-se <- readr::read_rds("data/se.rds")
-de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
-se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique),
-              which(se$rna_quality %in% c("high"))]
-seExpr_core <- calcNormFactors(se_core)
-design_core <- model.matrix(~ skin_type, seExpr_core$samples)
-vobj_core <- voom(seExpr_core, design_core)
-
-
-# perform VP analysis
-vp_core <- variancePartition::fitExtractVarPartModel(
-    vobj_core,
-    ~ (1|sequencing_batch) +
-      scorad + easi_total_score +
-      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
-      (1|gender) + (1|biopsy_area) + (1|visit),
-    colData(se_core) %>% as_tibble()
-)
-vp_core_t <- 
-  vp_core %>% 
-  as_tibble(rownames = "gene_name")
-
-# plot 1 - violin
-vp_core_p <- vp_core
-names(vp_core_p)[1] <- "anatomic area"
-names(vp_core_p)[3] <- "sequencing batch"
-names(vp_core_p)[4] <- "tissue type (LS/NL/HC)"
-names(vp_core_p)[5] <- "individual"
-names(vp_core_p)[7] <- "quarter"
-names(vp_core_p)[8] <- "SCORAD"
-names(vp_core_p)[9] <- "EASI"
-names(vp_core_p)[10] <- "unexplained"
-source("R/plot.R")
-vpcore_violin <-
-  plotVarPart_internal(vp_core_p) + 
-  theme(plot.margin = margin(.5, .5, .5, 2, "cm"))
-
-# plot 2 - cytokine dot plot
-cytokine_vp <- 
-  vp_core_t %>% 
-  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
-  arrange(-skin_type) %>% 
-  pivot_longer(cols = !gene_name, names_to = "term") %>% 
-  filter(term == "skin_type") %>% 
-  mutate(var_explained = round(value * 100, 2))
-cytokine_vp_P <- ggpubr::ggdotchart(
-  cytokine_vp, x = "gene_name", y = "var_explained",
-  color = "#FC4E07",
-  xlab = "",
-  sorting = "descending",
-  rotate = TRUE, 
-  add = "segments",
-  ggtheme = ggpubr::theme_pubr(),
-  dot.size = 4,
-  ylab = "Var% explained by atopic dermatitis tissue"
-)
-
-# plot 3 - top cytokine boxplot
-top_cytokine <-
-  cytokine_vp %>% filter(term == "skin_type") %>% 
-  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
-top_cytokine_boxplot <-
-  se[top_cytokine,] %>% as_tibble() %>% 
-  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
-  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
-            facet.by = "feature", xlab = FALSE,
-            ylab = FALSE, color = "skin_type", 
-            palette = pca_color, legend.title = "",
-            font.legend = c(14), nrow = 1, yscale = "log10") +
-  stat_compare_means()
-
-# consolidate 3 plots
-vp_core_p <- 
-  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P) + 
-  plot_annotation(tag_levels = "a") & 
-                  theme(plot.tag = element_text(face = "bold"))
-vp_core_p
-
-# save the plot (Not execuate)
-# png("figure/vp_core.png", width = 480*20, height= 480*12, res = 600)
-# var_part_p
-# dev.off()
-```
 
 ```{r vp - linc genes, dpi=600, fig.height=8}
 # LINC dotplot

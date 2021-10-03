@@ -460,41 +460,7 @@ top10_space %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-### Differential Gene Expression Analysis
 
-```{r DGE spcace, cache=TRUE}
-se_s_LSvsNL <- se_space %>% filter(skin_type %in% c("LS", "NL"))
-de_s_LSvsNL <- DESeq2::DESeqDataSet(se_s_LSvsNL, ~ subject + visit + skin_type + skin_type * visit + biopsy_area)
-de_s_LSvsNL_m <- DESeq2::DESeq(de_s_LSvsNL, parallel = TRUE)
-
-de_s_LSvsNL_legvsarm_res <- 
-  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
-  DESeq2::results(de_s_LSvsNL_m, name = "biopsy_area_leg_vs_arm") %>% as_tibble())
-
-biopsy_area_contrast <-
-  resultsNames(de_s_LSvsNL_m) %>% 
-  str_extract("biopsy_area_[:graph:]{1,}") %>% 
-  purrr::discard(is.na)
-
-register(MulticoreParam(parallel::detectCores() - 1))
-
-biopsy_area_results <- 
-  lapply(biopsy_area_contrast, function(x){
-  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
-  lfcShrink(de_s_LSvsNL_m, 
-            coef = x, 
-            parallel = TRUE) %>% as_tibble() %>% 
-    mutate(contrast = x))
-}) %>% purrr::map_dfr(~.x) %>% filter(padj < .05, abs(log2FoldChange) > 1) %>% 
-  mutate(contrast = contrast %>% str_remove("biopsy_area_"))
-```
-
-```{r DGE space - DT vis, eval=FALSE}
-biopsy_area_results %>% 
-  datatable() %>% 
-  formatRound(2:4) %>% 
-  formatSignif(5:6)
-```
 
 #### Bioreplicate
 

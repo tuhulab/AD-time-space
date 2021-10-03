@@ -245,7 +245,7 @@ DGE_space <-
   mutate(
     contrast = paste0(C1, "vs", C2),
     subject_matched = ifelse(C1 == "LS" & C2 =="NL", TRUE, FALSE),
-    se_exp = map2(C1, C2, ~ se[1:100,se$skin_type %in% c(.x, .y)]),
+    se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
     design_f = ifelse(subject_matched,
                       "~ subject + skin_type + visit + skin_type * visit + biopsy_area",
                       "~ gender + skin_type + visit + skin_type * visit + biopsy_area"),

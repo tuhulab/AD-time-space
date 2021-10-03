@@ -180,7 +180,7 @@ gsea_ad_p
 
 ## Variance analysis
 
-```{r vpall, cache=TRUE}
+```{r vpall, cache=TRUE, eval=FALSE}
 # se <- readr::read_rds("data/se.rds")
 isexpr <- rowSums(cpm(se)>1) >= 0.5 * ncol(se)
 seExpr <- se[isexpr,]
@@ -223,6 +223,8 @@ vp_core <- variancePartition::fitExtractVarPartModel(
 vp_core_t <- 
   vp_core %>% 
   as_tibble(rownames = "gene_name")
+
+# vp_core_t %>% saveRDS("data/vp_core_t.rds")
 
 # plot 1 - violin
 vp_core_p <- vp_core
@@ -289,6 +291,59 @@ vp_core_p
 
 
 ## Hair
+```{r generate heatmap for krtap, cache=TRUE}
+se_krtap <- readr::read_rds("data/se_krtap.rds")
+KRTAP_filt_d <- 
+  se_krtap %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
+sample_site_color <- 
+  colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Set3")
+names(color) <- sample_site_color
+
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_krtap) %>% as_tibble() %>% pull(skin_type), 
+    `Sampling site` = colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Sampling site` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1), 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        # title_gp = gpar(fontsize = 16),
+                                                        # labels_gp = gpar(fontsize = 16)),
+                                   `Sampling site` = list(nrow = 2) 
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          # title_gp = gpar(fontsize = 16),
+                                                          # labels_gp = gpar(fontsize = 16))
+                                   ))
+
+# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
+                                               
+heatmap <- ComplexHeatmap::Heatmap(KRTAP_filt_d,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(KRTAP_filt_d)[1])),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          # title_gp = gpar(fontsize = 14),
+                          # labels_gp = gpar(fontsize = 12)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+
+
+# png("figure/heatmap_KRTAP.png", width = 480*4.5, height = 480*3, res=300)
+# draw(heatmap, heatmap_legend_side = "right",
+#      annotation_legend_side = "top", merge_legend = FALSE)
+# dev.off()
+```
+
 
 ## Regulatory elements
 
@@ -343,7 +398,7 @@ topLINC_boxplot <-
   # stat_compare_means()
 ```
 
-```{r aggregate plot, dpi=600, fig.width=12}
+```{r aggregate plot, dpi=600, fig.width=12, fig.height=8}
 regulatory_p <- 
   ((gsea_r_p / LINC_vp_P) | topLINC_boxplot) + 
   plot_annotation(tag_levels = "a") & 
@@ -358,6 +413,10 @@ regulatory_p
 
 
 ## Anatomic region
+```{r}
+vp_core_t %>% slice_max(biopsy_area, n = 10)
+```
+
 
 ## Cell deconvolution
 

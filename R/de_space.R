@@ -1,7 +1,5 @@
 # SPACE R JOB
-
 setwd("/home/projects/ku_00015/people/tuhu/multiomics-ad-phd") # In computerome
-
 # load libraries
 pacman::p_load(tibble, dplyr, tidyr, readr, stringr, purrr,
                tidybulk, tidySummarizedExperiment,
@@ -11,7 +9,6 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align 
 core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
 se <- readr::read_rds("data/se.rds")
-
 # execuate jobs
 DGE_space <-
   tibble(
@@ -25,13 +22,30 @@ DGE_space <-
     design_f = ifelse(subject_matched,
                       "~ subject + skin_type + visit + skin_type * visit + biopsy_area",
                       "~ gender + skin_type + visit + skin_type * visit + biopsy_area"),
-    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
-    deseq = map(deseq, ~ DESeq(.x, parallel = T)),
-    res_name = map(deseq, ~ resultsNames(.x) %>% grep(pattern = "biopsy_area", ., value = T))) %>%
-  unnest(cols = res_name) %>%
-  mutate(
-    res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
-    res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
-  ) %>%
-  select(contrast, res_shrink)
-saveRDS(DGE_space, "data/dge_space_terminal.rds")
+    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)))
+DGE_space_res <-
+  lapply(DGE_space$deseq, DESeq, parallel = T)
+res_name <-
+  lapply(DGE_space_res,
+         function(x){
+           resultsNames(x) %>% grep(pattern = "biopsy_area", ., value = T)
+           })
+DGE_space_res_t <-
+  DGE_space %>%
+  select(contrast) %>%
+  mutate(res_name, deseq_res_id = 1:nrow(.)) %>%
+  unnest(res_name)
+DGE_space_shrink <-
+  lapply(
+    1:nrow(DGE_space_res_t),
+    function(x){
+      res_n <- DGE_space_res_t$res_name[x]
+      deseq_res <- DGE_space_res[[DGE_space_res_t$deseq_res_id[x]]]
+      lfc_shrink <- lfcShrink(deseq_res, coef = res_n, type = "apeglm", parallel = T)
+      lfc_shrink_t <- as_tibble(lfc_shrink, rownames = "gene_name")
+    })
+DGE_space_shrink_t <-
+  DGE_space_res_t %>%
+  mutate(DGE_space_shrink) %>%
+  select(-deseq_res_id)
+saveRDS(DGE_space_shrink_t, "data/dge_space_terminal.rds")

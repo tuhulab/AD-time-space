@@ -10,6 +10,7 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, purrr,
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
 core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
+se <- readr::read_rds("data/se.rds")
 
 # execuate jobs
 DGE_space <-

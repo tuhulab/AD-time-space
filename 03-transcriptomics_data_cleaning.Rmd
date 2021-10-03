@@ -187,7 +187,7 @@ readr::write_rds(se, "data/se.rds")
 readr::write_rds(se_KRTAP_filt, "data/se_krtap.rds")
 ```
 
-## Baseline differential expression expressed genes
+## Differential expressed genes: baseline
 
 ```{r DGE-V1, cache=TRUE}
 # V1 LSvsNL --------------------
@@ -233,6 +233,67 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
                    de_v1_NLvsNN = de_v1_NLvsNN_result)
 # de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+```
+
+## Differential expressed genes: anotomic area
+```{r DGE space, cache=TRUE}
+DGE_space <-
+  tibble(
+    C1 = c("LS", "LS", "NL"),
+    C2 = c("NL", "NN", "NN")
+  ) %>% 
+  mutate(
+    contrast = paste0(C1, "vs", C2),
+    subject_matched = ifelse(C1 == "LS" & C2 =="NL", TRUE, FALSE),
+    se_exp = map2(C1, C2, ~ se[1:100,se$skin_type %in% c(.x, .y)]),
+    design_f = ifelse(subject_matched,
+                      "~ subject + skin_type + visit + skin_type * visit + biopsy_area",
+                      "~ gender + skin_type + visit + skin_type * visit + biopsy_area"),
+    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
+    deseq = map(deseq, ~ DESeq(.x, parallel = T)),
+    res_name = map(deseq, ~ resultsNames(.x) %>% grep(pattern = "biopsy_area", ., value = T))) %>% 
+  unnest(cols = res_name) %>% 
+  mutate(
+    res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
+    res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
+  )
+save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
+```
+
+```{r DGE spcace, cache=TRUE}
+se_s_LSvsNL <- 
+  se_space %>% filter(skin_type %in% c("LS", "NL"))
+de_s_LSvsNL <- 
+  DESeq2::DESeqDataSet(se_s_LSvsNL, ~ subject + visit + skin_type + skin_type * visit + biopsy_area)
+de_s_LSvsNL_m <- DESeq2::DESeq(de_s_LSvsNL, parallel = TRUE)
+
+de_s_LSvsNL_legvsarm_res <- 
+  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
+  DESeq2::results(de_s_LSvsNL_m, name = "biopsy_area_leg_vs_arm") %>% as_tibble())
+
+biopsy_area_contrast <-
+  resultsNames(de_s_LSvsNL_m) %>% 
+  str_extract("biopsy_area_[:graph:]{1,}") %>% 
+  purrr::discard(is.na)
+
+register(MulticoreParam(parallel::detectCores() - 1))
+
+biopsy_area_results <- 
+  lapply(biopsy_area_contrast, function(x){
+  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
+  lfcShrink(de_s_LSvsNL_m, 
+            coef = x, 
+            parallel = TRUE) %>% as_tibble() %>% 
+    mutate(contrast = x))
+}) %>% purrr::map_dfr(~.x) %>% filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  mutate(contrast = contrast %>% str_remove("biopsy_area_"))
+```
+
+```{r DGE space - DT vis, eval=FALSE}
+biopsy_area_results %>% 
+  datatable() %>% 
+  formatRound(2:4) %>% 
+  formatSignif(5:6)
 ```
 
 ## Gene set enrichment analysis

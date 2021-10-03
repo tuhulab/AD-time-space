@@ -32,5 +32,6 @@ DGE_space <-
   mutate(
     res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
     res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
-  )
-save(DGE_space %>% select(contrast, res_shrink), "data/dge_space_terminal.rds")
+  ) %>%
+  select(contrast, res_shrink)
+saveRDS(DGE_space, "data/dge_space_terminal.rds")

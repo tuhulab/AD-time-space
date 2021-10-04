@@ -20,15 +20,17 @@ DGE_space <-
     subject_matched = ifelse(C1 == "LS" & C2 =="NL", TRUE, FALSE),
     se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
     design_f = ifelse(subject_matched,
-                      "~ subject + skin_type + visit + skin_type * visit + biopsy_area",
-                      "~ gender + skin_type + visit + skin_type * visit + biopsy_area"),
+                      "~ subject + skin_type + biopsy_area",
+                      "~ gender + skin_type + biopsy_area"),
     deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)))
+
 DGE_space_res <-
   lapply(DGE_space$deseq, DESeq, parallel = T)
+
 res_name <-
   lapply(DGE_space_res,
          function(x){
-           resultsNames(x) %>% grep(pattern = "biopsy_area", ., value = T)
+            grep(pattern = "biopsy_area", resultsNames(x), value = T)
            })
 DGE_space_res_t <-
   DGE_space %>%
@@ -48,4 +50,4 @@ DGE_space_shrink_t <-
   DGE_space_res_t %>%
   mutate(DGE_space_shrink) %>%
   select(-deseq_res_id)
-saveRDS(DGE_space_shrink_t, "data/dge_space_terminal.rds")
+saveRDS(DGE_space_shrink_t, "data/dge_space.rds")

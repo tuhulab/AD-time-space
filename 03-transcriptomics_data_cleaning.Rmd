@@ -239,16 +239,15 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
 ```{r DGE space, cache=TRUE}
 DGE_space <-
   tibble(
-    C1 = c("LS", "LS", "NL"),
-    C2 = c("NL", "NN", "NN")
+    C1 = c("LS", "NN"),
+    C2 = c("NL", "NN")
   ) %>% 
   mutate(
     contrast = paste0(C1, "vs", C2),
-    subject_matched = ifelse(C1 == "LS" & C2 =="NL", TRUE, FALSE),
     se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
-    design_f = ifelse(subject_matched,
-                      "~ subject + skin_type + visit + skin_type * visit + biopsy_area",
-                      "~ gender + skin_type + visit + skin_type * visit + biopsy_area"),
+    design_f = ifelse(C1 == "NN" & C2 == "NN", 
+                      "~ subject + visit + biopsy_area", 
+                      "~ subject + skin_type + visit + biopsy_area"),
     deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
     deseq = map(deseq, ~ DESeq(.x, parallel = T)),
     res_name = map(deseq, ~ resultsNames(.x) %>% grep(pattern = "biopsy_area", ., value = T))) %>% 

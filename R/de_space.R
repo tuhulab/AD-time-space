@@ -12,42 +12,21 @@ se <- readr::read_rds("data/se.rds")
 # execuate jobs
 DGE_space <-
   tibble(
-    C1 = c("LS", "LS", "NL"),
-    C2 = c("NL", "NN", "NN")
+    C1 = c("LS", "NN"),
+    C2 = c("NL", "NN")
   ) %>%
   mutate(
     contrast = paste0(C1, "vs", C2),
-    subject_matched = ifelse(C1 == "LS" & C2 =="NL", TRUE, FALSE),
     se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
-    design_f = ifelse(subject_matched,
-                      "~ subject + skin_type + biopsy_area",
-                      "~ gender + skin_type + biopsy_area"),
-    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)))
-
-DGE_space_res <-
-  lapply(DGE_space$deseq, DESeq, parallel = T)
-
-res_name <-
-  lapply(DGE_space_res,
-         function(x){
-            grep(pattern = "biopsy_area", resultsNames(x), value = T)
-           })
-DGE_space_res_t <-
-  DGE_space %>%
-  select(contrast) %>%
-  mutate(res_name, deseq_res_id = 1:nrow(.)) %>%
-  unnest(res_name)
-DGE_space_shrink <-
-  lapply(
-    1:nrow(DGE_space_res_t),
-    function(x){
-      res_n <- DGE_space_res_t$res_name[x]
-      deseq_res <- DGE_space_res[[DGE_space_res_t$deseq_res_id[x]]]
-      lfc_shrink <- lfcShrink(deseq_res, coef = res_n, type = "apeglm", parallel = T)
-      lfc_shrink_t <- as_tibble(lfc_shrink, rownames = "gene_name")
-    })
-DGE_space_shrink_t <-
-  DGE_space_res_t %>%
-  mutate(DGE_space_shrink) %>%
-  select(-deseq_res_id)
-saveRDS(DGE_space_shrink_t, "data/dge_space.rds")
+    design_f = ifelse(C1 == "NN" & C2 == "NN",
+                      "~ subject + visit + biopsy_area",
+                      "~ subject + skin_type + visit + biopsy_area"),
+    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
+    deseq = map(deseq, ~ DESeq(.x, parallel = T)),
+    res_name = map(deseq, ~ resultsNames(.x) %>% grep(pattern = "biopsy_area", ., value = T))) %>%
+  unnest(cols = res_name) %>%
+  mutate(
+    res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
+    res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
+  )
+save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")

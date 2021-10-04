@@ -259,44 +259,7 @@ DGE_space <-
 save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 ```
 
-```{r DGE spcace, cache=TRUE}
-se_s_LSvsNL <- 
-  se_space %>% filter(skin_type %in% c("LS", "NL"))
-de_s_LSvsNL <- 
-  DESeq2::DESeqDataSet(se_s_LSvsNL, ~ subject + visit + skin_type + skin_type * visit + biopsy_area)
-de_s_LSvsNL_m <- DESeq2::DESeq(de_s_LSvsNL, parallel = TRUE)
-
-de_s_LSvsNL_legvsarm_res <- 
-  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
-  DESeq2::results(de_s_LSvsNL_m, name = "biopsy_area_leg_vs_arm") %>% as_tibble())
-
-biopsy_area_contrast <-
-  resultsNames(de_s_LSvsNL_m) %>% 
-  str_extract("biopsy_area_[:graph:]{1,}") %>% 
-  purrr::discard(is.na)
-
-register(MulticoreParam(parallel::detectCores() - 1))
-
-biopsy_area_results <- 
-  lapply(biopsy_area_contrast, function(x){
-  bind_cols(tibble(gene_name = names(de_s_LSvsNL_m)),
-  lfcShrink(de_s_LSvsNL_m, 
-            coef = x, 
-            parallel = TRUE) %>% as_tibble() %>% 
-    mutate(contrast = x))
-}) %>% purrr::map_dfr(~.x) %>% filter(padj < .05, abs(log2FoldChange) > 1) %>% 
-  mutate(contrast = contrast %>% str_remove("biopsy_area_"))
-```
-
-```{r DGE space - DT vis, eval=FALSE}
-biopsy_area_results %>% 
-  datatable() %>% 
-  formatRound(2:4) %>% 
-  formatSignif(5:6)
-```
-
 ## Gene set enrichment analysis
-
 ```{r dge result}
 de_v1_full <- readr::read_rds("data/de_v1_full.rds")
 gse121212 <- readr::read_rds("https://rawcdn.githack.com/tuhulab/gse121212/0ba93240d13b753bf32fd0aab0841fb6968b0ea5/data/DGE_full_model.rds")
@@ -308,7 +271,6 @@ dge_result <-
     dge_result = c(de_v1_full, gse121212$res_shrink)
 )
 ```
-
 
 ```{r prepare gene set, cache=TRUE}
 # prepare gs --------------

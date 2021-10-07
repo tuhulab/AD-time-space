@@ -322,12 +322,12 @@ gsea_exp <-
                      function(dge_result, gs_name){
                        p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
                                                          "TFT:GTRD"),
-                                          .05, # .05
-                                          .05)
+                                          1, # .05
+                                          1)
                        log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
                                                         "TFT:GTRD"),
-                                               1, # 1
-                                               1)
+                                               0, # 1
+                                               0)
                        dge_result %>% 
                          mutate(rank = log2FoldChange) %>% 
                          filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
@@ -345,7 +345,7 @@ gsea_exp <-
 }))
 
 gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
-# gsea_res %>% saveRDS("data/gsea_res_FOUR.rds")
+# gsea_res %>% saveRDS("data/gsea_res_FIVE_nocutoff.rds")
 ```
 
 

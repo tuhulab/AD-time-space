@@ -263,12 +263,23 @@ save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 ```{r dge result}
 de_v1_full <- readr::read_rds("data/de_v1_full.rds")
 gse121212 <- readr::read_rds("https://rawcdn.githack.com/tuhulab/gse121212/0ba93240d13b753bf32fd0aab0841fb6968b0ea5/data/DGE_full_model.rds")
+gse107361 <- readr::read_rds("data/gse107361_dge.rds")
+gse120721 <- readr::read_rds("data/gse120721_dge.rds") %>% mutate(project = )
+
 dge_result <-
   tibble(
     project = c(rep("multi-omics",length(de_v1_full)), 
-                rep("gse121212",nrow(gse121212))),
-    contrast = c(de_v1_full %>% names, gse121212$contrast),
-    dge_result = c(de_v1_full, gse121212$res_shrink)
+                rep("gse121212",nrow(gse121212)),
+                rep("gse107361",nrow(gse107361)),
+                rep("gse120721",nrow(gse120721))),
+    contrast = c(de_v1_full %>% names, 
+                 gse121212$contrast, 
+                 gse107361$contrast,
+                 gse120721$contrast),
+    dge_result = c(de_v1_full, 
+                   gse121212$res_shrink,
+                   gse107361$dge_result,
+                   gse120721$dge_result)
 )
 ```
 
@@ -321,19 +332,15 @@ gsea_exp <-
                                                        stats    = rank,
                                                        minSize  = 8,
                                                        maxSize  = 500, 
-                                                       eps = 0, 
+                                                       eps = 0,
+                                                       nPermSimple = 10000,
                                                        BPPARAM = MulticoreParam(workers = core_n - 4)) %>% 
                             as_tibble()
 }))
 
 gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
-# gsea_res %>% saveRDS("data/gsea_res.rds")
+# gsea_res %>% saveRDS("data/gsea_res_FOUR.rds")
 ```
-
-
-
-
-
 
 
 

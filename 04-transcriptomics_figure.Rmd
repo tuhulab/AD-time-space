@@ -106,7 +106,9 @@ draw(heatmap, heatmap_legend_side = "right",
 ## Gene set enrichment analysis
 
 ```{r gsea-vis}
-gsea_res <- readr::read_rds("data/gsea_res.rds")
+gsea_res <- 
+  readr::read_rds("data/gsea_res.rds") %>% 
+  bind_rows(readr::read_rds("../gse120721/data/gsea_res.rds"))
 
 # gene set regulatory
 gs_r <- gsea_res %>% filter((gs_name %in% c("MIR:MIRDB", "TFT:GTRD") & padj < .05 & project == "multi-omics") | 
@@ -125,6 +127,7 @@ gs_ad <- gsea_res %>% filter(pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
                                             "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
                                             "GOBP_LIPID_HOMEOSTASIS") & padj < .05 | 
                                pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05) %>% pull(pathway) %>% unique()
+
 gsea_res_filt <-
   gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
   group_by(pathway, gs_name) %>% nest() %>% 
@@ -144,7 +147,7 @@ gsea_res_filt <-
                       des)) %>% 
   unnest()
 
-gsea_ad_p <- 
+gsea_ad_p <-
   gsea_res_filt %>% filter(pathway %in% gs_ad) %>% 
   mutate(cat = case_when(
     pathway %in% c("PID_IL23_PATHWAY",

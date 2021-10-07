@@ -262,7 +262,10 @@ save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 ## Gene set enrichment analysis
 ```{r dge result}
 de_v1_full <- readr::read_rds("data/de_v1_full.rds")
-gse107361 <- readr::read_rds("data/dge_gse107361.rds") # adult vs children
+gse107361 <- 
+  readr::read_rds("data/dge_gse107361.rds") %>% # adult vs children
+  mutate(dge_result = map(dge_result, unnest))
+  
 gse120721 <- readr::read_rds("data/dge_gse120721.rds") # LSM
 gse121212 <- readr::read_rds("data/dge_gse121212.rds")
 ChronicvsAcute <- readr::read_rds("data/dge_AcutevsChronic.rds")
@@ -319,12 +322,12 @@ gsea_exp <-
                      function(dge_result, gs_name){
                        p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
                                                          "TFT:GTRD"),
-                                          1, # .05
-                                          1)
+                                          .05, # .05
+                                          .05)
                        log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
                                                         "TFT:GTRD"),
-                                               0, # 1
-                                               0)
+                                               1, # 1
+                                               1)
                        dge_result %>% 
                          mutate(rank = log2FoldChange) %>% 
                          filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 

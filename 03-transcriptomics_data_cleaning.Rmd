@@ -156,10 +156,19 @@ colData(se)$biopsy_area <- colData(se)$biopsy_area %>%
 se_prifilt <- se
 
 # filter out genes 
-se <- se %>% 
+se <- 
+  se %>% 
   keep_abundant(factor_of_interest = skin_type) %>% 
   scale_abundance()
 
+g_non_pseudo <- 
+  rownames(se) %>% 
+  gprofiler2::gconvert() %>% 
+  filter(!description %>% str_detect("pseudogene")) %>% 
+  pull(input) %>% unique()
+
+se <-
+  se[g_non_pseudo,]
 ```
 
 ```{r generate KRTAP}

@@ -104,6 +104,15 @@ openxlsx::write.xlsx(individual_data,
                      "data/supplementary/table_s2.xlsx", overwrite = T)
 ```
 
+## Space
+```{r load dge object}
+dge_space <- readr::read_rds("data/dge_space.rds")
+dge_space_filt <- 
+  dge_space %>% unnest() %>% filter(padj < .05, abs(log2FoldChange) > 1)
+readr::write_csv(dge_space_filt, "data/")
+```
+
+
 ## Tissue type heterogenity
 ```{r distance, cache=TRUE, fig.cap="Cosine distance of three tissue types"}
 se <- readr::read_rds("data/se.rds")

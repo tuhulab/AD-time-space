@@ -278,16 +278,18 @@ save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 # clean the environment for parallel 
 # rm(list = ls()[ls() != "se"])
 # LS vs NL
-se_t_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
-de_t_LSvsNL <- DESeq2::DESeqDataSet(se_t_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
+se_v_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
+de_v_LSvsNL <- DESeq2::DESeqDataSet(se_v_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
 
-de_t_LSvsNL_m <- DESeq2::DESeq(de_t_LSvsNL, test="LRT", 
+de_v_LSvsNL_m <- DESeq2::DESeq(de_v_LSvsNL, test="LRT", 
                               reduced = ~  subject + visit + skin_type,
                               parallel = TRUE) # takes very long time to run
 
-de_t_LSvsNL_res <- 
+de_v_LSvsNL_res <- 
   bind_cols(tibble(gene_name = names(de_t_LSvsNL_m)),
   DESeq2::results(de_t_LSvsNL_m) %>% as_tibble())
+
+de_v1_LSvsNL_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 
 # LS vs NN
 se_t_LSvsNN <-

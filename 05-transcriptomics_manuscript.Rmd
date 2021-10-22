@@ -35,9 +35,27 @@ baseline_disease_severity <-
             mean_easi = mean(easi_total_score) %>% round(2))
 ```
 
-### Baseline characteristics
+```{r follow-up subjects}
+follow_up <- 
+  clinical_records %>% filter(visit_no != 1) %>% 
+  group_by(group) %>% 
+  select(id, group) %>% 
+  distinct() %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = group, values_from = n)
+```
+
+
+### Baseline characteristics of patients with mild to moderate AD
 
 The atopic dermatitis (AD) group were characterized by mild to moderate disease severity, with mean eczema area and severity index (EASI) `r baseline_disease_severity$mean_easi` and mean SCORing Atopic Dermatitis (SCORAD) `r baseline_disease_severity$mean_scorad`. At the baseline, the AD and healthy control (HC) group showed no statistical difference in gender, age, BMI, and total blood IgE (Table: \@ref(tab:baseline-statistics-table)). Individual data points were reported in the supplementary table \@ref(tab:individual-data-table).
+
+
+### RNA quality outliers and Data curation
+We performed transcriptomic profiling on 401 skin biopsies collected from lesional and non-lesional skin of 30 AD patients and site-matched skin from 30 healthy subjects. From each subject, biological replicates were obtained from different skin sites. 
+For `r follow_up$AD` AD and `r follow_up$CO` healthy participants, the sampling was repeated at five subsequent visits every two months for up to one year.
+After data curation and cleaning (details in Data QC and curation), 339 samples were left for further analysis.
+
 
 ### Transcriptome architecture and components of AD
 
@@ -205,226 +223,6 @@ draw(heatmap, heatmap_legend_side = "right",
 psych::pairs.panels(se_krtap %>% assay(2) %>% log1p() %>% t())
 ```
 
-### Visit as time
-
-```{r model time (visit), eval=FALSE, cache=TRUE}
-
-# clean the environment for parallel 
-# rm(list = ls()[ls() != "se"])
-# LS vs NL
-se_t_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
-de_t_LSvsNL <- DESeq2::DESeqDataSet(se_t_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
-
-de_t_LSvsNL_m <- DESeq2::DESeq(de_t_LSvsNL, test="LRT", 
-                              reduced = ~  subject + visit + skin_type,
-                              parallel = TRUE) # takes very long time to run
-
-de_t_LSvsNL_res <- 
-  bind_cols(tibble(gene_name = names(de_t_LSvsNL_m)),
-  DESeq2::results(de_t_LSvsNL_m) %>% as_tibble())
-
-# LS vs NN
-se_t_LSvsNN <-
-  se %>%
-  filter(skin_type %in% c("LS", "NN"))
-
-de_t_LSvsNN <- DESeq2::DESeqDataSet(se_t_LSvsNN, ~  gender + visit + skin_type + skin_type * visit)
-
-de_t_LSvsNN_m <- DESeq2::DESeq(de_t_LSvsNN, test="LRT", 
-                              reduced = ~ gender + visit + skin_type,
-                              parallel = TRUE)
-de_t_LSvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_t_LSvsNN_m)),
-  DESeq2::results(de_t_LSvsNN_m) %>% as_tibble())
-
-# NL vs NN
-se_t_NLvsNN <-
-  se %>%
-  filter(skin_type %in% c("NL", "NN"))
-
-de_t_NLvsNN <- DESeq2::DESeqDataSet(se_t_NLvsNN, ~  gender + visit + skin_type + skin_type * visit)
-
-de_t_NLvsNN_m <- DESeq2::DESeq(de_t_NLvsNN, test="LRT", 
-                              reduced = ~ gender + visit + skin_type,
-                              parallel = TRUE)
-de_t_NLvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_t_NLvsNN_m)),
-  DESeq2::results(de_t_NLvsNN_m) %>% as_tibble())
-```
-
-```{r model time(visit)-summary, eval=FALSE}
-de_t_c_res <- 
-  bind_rows(de_t_LSvsNL_res %>% mutate(contrast = "LSvsNL_v"),
-            de_t_LSvsNN_res %>% mutate(contrast = "LSvsNN_v"),
-            de_t_NLvsNN_res %>% mutate(contrast = "NLvsNN_v")) %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1)
-
-de_t_c_res_s <-
-  de_t_c_res %>% 
-  group_by(contrast) %>% 
-  summarise(n_dysregulated_genes = n())
-
-de_t_c_res_s
-```
-
-```{r model time(visit)-vis, eval=FALSE}
-heatmap_de_model <- 
-  function(de_model){
-    de_model_res <- 
-      bind_cols(tibble(gene_name = names(de_model)),
-                DESeq2::results(de_model) %>% as_tibble())
-    betas <- coef(de_model)
-    
-    topGenes <- 
-      de_model_res %>% filter(padj < .05) %>% arrange(padj) %>% 
-      head(20) %>% pull(gene_name)
-    
-    col_to_plot <- colnames(betas) %>%
-                   str_extract("(visit|visit_quarter)[:graph:]{1,}") %>% 
-                   purrr::discard(is.na)
-    mat <- betas[topGenes, col_to_plot]
-    colnames(mat) <- col_to_plot %>% str_remove("visit_quarter") %>% str_remove("^_")
-    thr <- 3 
-    mat[mat < -thr] <- -thr
-    mat[mat > thr] <- thr
-    pheatmap(mat, 
-             breaks=seq(from=-thr, to=thr, length=101), 
-             cluster_col=FALSE, angle_col = "45", 
-             main = deparse(substitute(de_model)) %>% str_extract("(LS|NL)vs(NL|NN)"))
-  }
-
-# betas <- coef(de_t_LSvsNL_m)
-# colnames(betas)
-# topGenes <- names(de_t_LSvsNN_m)[head(order(de_t_LSvsNN_res$padj),20)]
-# mat <- betas[topGenes, -c(1,2)]
-# thr <- 3 
-# mat[mat < -thr] <- -thr
-# mat[mat > thr] <- thr
-# pheatmap(mat, breaks=seq(from=-thr, to=thr, length=101),
-#          cluster_col=FALSE)
-heatmap_de_model(de_t_LSvsNL_m)
-heatmap_de_model(de_t_LSvsNN_m)
-heatmap_de_model(de_t_NLvsNN_m)
-```
-
-```{r examples-time-effect, eval=FALSE}
-SPAAR <- plotCounts(de_t_LSvsNL_m, 
-                    gene = "SPAAR", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NL")))
-
-SPAAR %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("SPAAR (Small Regulatory Polypeptide Of Amino Acid Response)") +
-  theme_classic()
-
-KRT27 <- plotCounts(de_t_LSvsNN_m, 
-                    gene = "KRT27", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
-
-
-KRT27 %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("KRT27") +
-  theme_classic()
-
-KRT9 <- plotCounts(de_t_LSvsNN_m, 
-                    gene = "KRT9", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
-
-KRT9 %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("KRT9") +
-  theme_classic()
-```
-
-### Quarter as time
-
-```{r model time(quarter), cache=TRUE, eval=FALSE}
-se <- se[, - which(is.na(se$visit_quarter))]
-se_q_LSvsNL <- se[, se$skin_type %in% c("LS", "NL")]
-se_q_LSvsNN <- se[, se$skin_type %in% c("LS", "NN")]
-se_q_NLvsNN <- se[, se$skin_type %in% c("NL", "NN")]
-
-# LS vs NL
-de_q_LSvsNL <- DESeq2::DESeqDataSet(se_q_LSvsNL, ~ subject + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_LSvsNL_m <- DESeq2::DESeq(de_q_LSvsNL, test="LRT", 
-                              reduced = ~  subject + visit_quarter + skin_type,
-                              parallel = TRUE)
-
-de_q_LSvsNL_res <- 
-  bind_cols(tibble(gene_name = names(de_q_LSvsNL_m)),
-  DESeq2::results(de_q_LSvsNL_m) %>% as_tibble())
-
-# LS vs NN
-de_q_LSvsNN <- DESeq2::DESeqDataSet(se_q_LSvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_LSvsNN_m <- DESeq2::DESeq(de_q_LSvsNN, test="LRT", 
-                              reduced = ~ gender + visit_quarter + skin_type,
-                              parallel = TRUE)
-de_q_LSvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_q_LSvsNN_m)),
-  DESeq2::results(de_q_LSvsNN_m) %>% as_tibble())
-
-# NL vs NN
-de_q_NLvsNN <- DESeq2::DESeqDataSet(se_q_NLvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_NLvsNN_m <- DESeq2::DESeq(de_q_NLvsNN, test="LRT", 
-                              reduced = ~ gender + visit_quarter + skin_type,
-                              parallel = TRUE)
-de_q_NLvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_q_NLvsNN_m)),
-  DESeq2::results(de_q_NLvsNN_m) %>% as_tibble())
-```
-
-```{r model time(quarter)-summary, eval=FALSE}
-de_q_c_res <- 
-  bind_rows(de_q_LSvsNL_res %>% mutate(contrast = "LSvsNL_q"),
-            de_q_LSvsNN_res %>% mutate(contrast = "LSvsNN_q"),
-            de_q_NLvsNN_res %>% mutate(contrast = "NLvsNN_q")) %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1)
-
-de_q_c_res_s <-
-  de_q_c_res %>% 
-  group_by(contrast) %>% 
-  summarise(n_dys = n())
-
-de_q_c_res_s
-```
-
-```{r model time(quarter)-vis, eval=FALSE}
-heatmap_de_model(de_q_LSvsNN_m)
-heatmap_de_model(de_q_NLvsNN_m)
-```
-
-### Over-representation analysis
-
-```{r over-representation of time effect, eval=FALSE}
-setEnrichrSite("Enrichr")
-dbs <- c("GO_Molecular_Function_2021", 
-         "GO_Cellular_Component_2021", 
-         "GO_Biological_Process_2021",
-         "KEGG_2021_Human", 
-         "WikiPathway_2021_Human", 
-         "Reactome_2016")
-
-enriched <- 
-  enrichr(de_q_c_res %>% filter(contrast == "LSvsNN_q") %>% pull(gene_name), dbs)
-
-enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
-
-# de_t_c_res %>% filter(contrast == "LSvsNN_v") %>% pull(gene_name) 
-```
-
 ## Space effect
 
 ### Variance Partition
@@ -470,106 +268,6 @@ top10_space %>%
 
 ## Cell Type Deconvolution
 
-```{r MuSic, cache=TRUE}
-
-# Construct ExpressionSet for bulk RNA-seq
-
-se_scaled <- se
-# se_scaled <- 
-assay(se_scaled) <- NULL
-
-multiomics <- 
-  as(se_scaled, "ExpressionSet")
-
-# Construct ExpressionSet for scRNA-seq
-emma_guttman <- readRDS(
-  url("https://gitcdn.link/repo/tuhulab/cell-type-deconvolute/main/data/emma-gutmann/ExpressionSet.rds")
-  )
-
-multiomics_music <- music_prop(bulk.eset = multiomics, sc.eset = emma_guttman,
-                               clusters = "cell_type", samples = "sample_name")
-
-
-multiomics_results <-
-  data.matrix(multiomics_music$Est.prop.weighted) %>% 
-  as.data.frame() %>% rownames_to_column("BAM_ID") %>% 
-  pivot_longer(!BAM_ID, names_to = "cell_type", values_to = "prop") %>% 
-  left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
-
-cell_type_rank <- 
-  multiomics_results %>% group_by(cell_type) %>% 
-  summarize(mean_prop = mean(prop)) %>% arrange(-mean_prop) %>% pull(cell_type)
-
-exclude_low_KRT <-
-  multiomics_results %>% 
-  filter(cell_type == "Keratinocytes", prop < .11) %>% pull(BAM_ID)
-
-multiomics_results <-
-  multiomics_results %>% filter(!BAM_ID %in% exclude_low_KRT) %>% 
-  mutate(cell_type = forcats::fct_relevel(cell_type, cell_type_rank),
-         prop = prop * 100)
-
-deconvolution_vis_group <- 
-  multiomics_results %>% 
-  ggplot(aes(skin_type, prop, color = skin_type)) +
-  geom_jitter(width = .1) +
-  geom_boxplot(alpha = .4) +
-  facet_wrap(~cell_type, scales = "free") +
-  theme_classic() +
-  ggpubr::color_palette("jco")
-
-deconvolution_vis_group
-```
-
-```{r appendix, eval=FALSE}
-multiomics_results_sample <- 
-  multiomics_results %>%
-  mutate(plot_name = paste(subject, visit, skin_type, replicate_ID, sep = "_"))
-
-multiomics_results_sample_count <-
-  multiomics_results_sample$plot_name %>% table
-
-multiomics_results_sample <-
-  multiomics_results_sample %>% 
-  filter(plot_name %in% names(which(multiomics_results_sample_count == 10)))
-
-multiomics_results_vis_sample <- 
-  multiomics_results_sample %>%  # filter(subject %in% c("AD_16", "CO_33")) %>% 
-  arrange(plot_name) %>% 
-  ggbarplot(x = "plot_name", y = "prop", fill = "cell_type", 
-            xlab = "Sample", ylab = "Proportion(%)", palette = "npg") %>% 
-  facet(facet.by = "subject", scales = "free") %>% 
-  ggpar(xtickslab.rt = 90, font.tickslab = 6)
-
-# pdf("figure/deconvolution_sample.pdf", height = 16.5 * 1.5, width = 11.7)
-# multiomics_results_vis_sample
-# dev.off()
-```
-
-```{r two samples}
-multiomics_results_twosamples <- 
-  multiomics_results %>%
-  filter(subject %in% c("AD_16", "CO_33")) %>% 
-  ggbarplot(x = "replicate_ID", y = "prop", fill = "cell_type", 
-            facet.by = c("skin_type", "visit"),
-            panel.labs = list(visit = c("Visit 1", "Visit 2", "Visit 3", "Visit 4", "Visit 5"), 
-                              skin_type = c("CO33-NN", "AD16-NL", "AD16-LS")),
-            xlab = "Replicate", ylab = "Proportion(%)") +
-  fill_palette("npg")
-
-multiomics_results_vis_two_sample <- 
-  multiomics_results_twosamples %>% 
-  ggpar(legend = "bottom", 
-        legend.title = "Cell type",
-        font.legend = 7, 
-        font.tickslab = 6, 
-        main = "Cell Deconvolution for two examples (subject AD_16 and CO_33)",
-        rotate = TRUE)
-
-
-multiomics_results_vis_two_sample
-
-```
 
 
 

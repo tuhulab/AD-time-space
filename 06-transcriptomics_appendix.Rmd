@@ -10,7 +10,7 @@ library(stringr)
 library(ggpubr)
 ```
 
-## Baseline characteristics
+## Table S1 - Baseline characteristics
 
 ```{r baseline-statistics-table}
 extensive_meta <- 
@@ -81,8 +81,14 @@ knitr::kable(clinic_summary_t,
              format = "html", 
              caption = "Baseline characteristics of AD and HC group") %>% 
   kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test.")
+
+clinic_summary_t_xlsx <- clinic_summary_t %>% as_tibble(rownames = " ")
+clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test."
+openxlsx::write.xlsx(clinic_summary_t_xlsx, 
+                     "data/supplementary/table_s1.xlsx", overwrite = T)
 ```
 
+## Table S2 - individual data table
 ```{r individual-data-table}
 individual_data <- 
   baseline_data %>% arrange(subject) %>% select(-ige_200_h) %>% 
@@ -94,6 +100,8 @@ colnames(individual_data)[7] <- "EASI"
 colnames(individual_data)[8] <- "SCORAD"
 colnames(individual_data)[9] <- "oSCORAD"
 knitr::kable(individual_data, caption = "Baseline statistics of individual subjects")
+openxlsx::write.xlsx(individual_data, 
+                     "data/supplementary/table_s2.xlsx", overwrite = T)
 ```
 
 ## Tissue type heterogenity

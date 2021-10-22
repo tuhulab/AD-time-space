@@ -109,7 +109,7 @@ openxlsx::write.xlsx(individual_data,
 dge_space <- readr::read_rds("data/dge_space.rds")
 dge_space_filt <- 
   dge_space %>% unnest() %>% filter(padj < .05, abs(log2FoldChange) > 1)
-readr::write_csv(dge_space_filt, "data/")
+readr::write_csv(dge_space_filt, "data/supplementary/dge_space.csv")
 ```
 
 

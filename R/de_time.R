@@ -9,7 +9,7 @@ core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n - 6)))
 se <- readr::read_rds("data/se.rds")
 
-se <- se[1:50,!is.na(se$visit_quarter)]
+se <- se[,!is.na(se$visit_quarter)]
 
 # execuate jobs
 DGE_time <-

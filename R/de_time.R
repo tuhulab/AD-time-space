@@ -5,12 +5,11 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, purrr,
                tidybulk, tidySummarizedExperiment,
                BiocParallel, Biobase,
                DESeq2)
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
 core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n - 6)))
 se <- readr::read_rds("data/se.rds")
 
-se <- se[,!is.na(se$visit_quarter)]
+se <- se[1:50,!is.na(se$visit_quarter)]
 
 # execuate jobs
 DGE_time <-
@@ -28,9 +27,30 @@ DGE_time <-
     reduce_f = ifelse(C1 == "LS" & C2 == "NL",
                       paste("~", "subject", "+", t, "+", "skin_type"),
                       paste("~", "gender", "+", t, "+", "skin_type")),
-    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
-    deseq = map2(deseq, reduce_f, ~ DESeq(.x, test = "LRT", reduced = .y %>% as.formula, parallel = T)),
-    res = map(deseq, ~ DESeq2::results(.x)),
-    res = map(res, ~ .x %>% as.data.frame %>% as_tibble(rownames = "gene_name"))
-  )
-saveRDS(DGE_time %>% select(C1:contrast, res), "data/dge_time.rds")
+    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)))
+
+deseq <-
+  lapply(1:nrow(DGE_time), function(x){
+    deseq <- DESeq(DGE_time$deseq[[x]],
+                   test = "LRT",
+                   reduced = DGE_time$reduce_f[[x]] %>% as.formula,
+                   parallel = T)
+    return(deseq)
+         })
+
+res <-
+  lapply(1:length(deseq), function(x){
+    res <- results(deseq[[x]])
+    })
+
+res <-
+  lapply(1:length(res), function(x){
+    res <- res[[x]] %>% as.data.frame() %>% as_tibble(rownames = "gene_name")
+  })
+
+DGE_time <-
+  DGE_time %>% select(C1:contrast) %>%
+  mutate(res) %>% unnest() %>%
+  filter(padj < .05, abs(log2FoldChange) > 1)
+
+saveRDS(DGE_time, "data/dge_time.rds")

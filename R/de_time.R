@@ -11,6 +11,15 @@ se <- readr::read_rds("data/se.rds")
 
 se <- se[,!is.na(se$visit_quarter)]
 
+# filter out those who participated only in longitudinal studies
+longitudinal_subject <-
+  colData(se) %>% as_tibble() %>%
+  select(subject, visit) %>% distinct() %>%
+  group_by(subject) %>%
+  summarise(n = n()) %>% filter(n>1) %>% pull(subject)
+
+se <- se %>% filter(subject %in% longitudinal_subject)
+
 # execuate jobs
 DGE_time <-
   tibble(

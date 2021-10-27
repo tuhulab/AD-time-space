@@ -9,12 +9,11 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr,
                patchwork)
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60")
-               # , "HC" = "#91cf60")
 core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
 ```
 
-## PCA and heatmap
+## Transcriptomic profile of atopic dermatitis (AD) signature
 
 ### PCA
 
@@ -32,7 +31,7 @@ colData(se) <-
 
 core_genes <- 
   readr::read_csv("data/de_v1_sig.csv", show_col_types = FALSE) %>% 
-  filter(contrast == "LSvsNL") %>% 
+  filter(contrast == "LSvsNL") %>%
   pull(gene_name) %>% unique()
 
 # dimension reduction
@@ -112,6 +111,41 @@ draw(heatmap, heatmap_legend_side = "right",
 #      annotation_legend_side = "top", merge_legend = FALSE)
 # dev.off()
 ```
+
+### Cosine similarity
+```{r Cosine similarity}
+# se <- readr::read_rds("data/se.rds")
+group_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "HC" = "#91cf60")
+cosine_st <-
+    lapply(c("LS", "NL", "HC"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(cosine_st) <- c("LS", "NL", "HC")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type") %>% tibble
+cosine_p <- 
+  cosine_df %>% 
+  ggpubr::ggdensity(x = "cos_dist", fill = "skin_type", 
+                    palette = pca_color, xlab = "Cosine similarity",
+                    alpha = .8) %>% 
+  ggpubr::ggpar(legend.title = "tissue type")
+
+cosine_p
+
+# png("figure/cosine_p.png", width=480*10/1.4, height = 480*8/1.4, res = 600)
+# cosine_p
+# dev.off()
+```
+
+```{r}
+lapply(cosine_st, median)
+```
+
 
 
 ## Gene set enrichment analysis

@@ -10,7 +10,7 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr,
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60")
 core_n <- future::availableCores()
-register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n - 6)))
 ```
 
 ## Transcriptomic profile of atopic dermatitis (AD) signature

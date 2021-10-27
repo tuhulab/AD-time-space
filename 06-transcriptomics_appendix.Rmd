@@ -8,6 +8,7 @@ library(SummarizedExperiment)
 library(DT)
 library(stringr)
 library(ggpubr)
+pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60")
 ```
 
 ## Table S1 - Baseline characteristics
@@ -209,8 +210,60 @@ gse_reg %>%
 
 ## Novel targes
 
+### IL34 and IL37
 ```{r data - IL34, IL37, CSF1, CSF1R}
+novel_target_expr <- 
+  se[c("IL34", "IL37", "CSF1", "CSF1R")] %>% 
+  select(feature, sample, counts_scaled, skin_type) %>% 
+  pivot_wider(names_from = feature, values_from = counts_scaled)
+```
 
+```{r}
+p_IL34_IL37_a <-
+  novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "IL37", add = "reg.line", conf.int = T,
+            cor.coef = T, cor.method = "spearman")
+
+p_IL34_IL37_sep <- 
+  novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "IL37", add = "reg.line", conf.int = T, color = "skin_type",
+            cor.coef = T, cor.method = "spearman", 
+            facet.by = "skin_type", scales = "free", palette = pca_color)
+
+```
+
+```{r}
+p_IL34_IL37_a / p_IL34_IL37_sep
+```
+
+### IL34 and CSF1
+
+```{r}
+novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "CSF1", add = "reg.line", conf.int = T,
+            cor.coef = T, cor.method = "spearman")
+```
+
+```{r}
+novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "CSF1", add = "reg.line", conf.int = T, color = "skin_type",
+            cor.coef = T, cor.method = "spearman", 
+            facet.by = "skin_type", scale = "free", palette = pca_color)
+```
+
+### IL34 and CSF1R
+
+```{r}
+novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "CSF1R", add = "reg.line", conf.int = T,
+            cor.coef = T, cor.method = "spearman")
+```
+
+```{r}
+novel_target_expr %>% 
+  ggscatter(x = "IL34", y = "CSF1R", add = "reg.line", conf.int = T, color = "skin_type",
+            cor.coef = T, cor.method = "spearman", 
+            facet.by = "skin_type", scale = "free", palette = pca_color)
 ```
 
 

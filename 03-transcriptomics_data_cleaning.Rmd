@@ -153,13 +153,14 @@ se <- se[, !se$BAM_ID %in% exclude_BAM]
 colData(se)$biopsy_area <- colData(se)$biopsy_area %>% 
   str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
 
-se_prifilt <- se
-
-# filter out genes 
-se <- 
-  se %>% 
-  keep_abundant(factor_of_interest = skin_type) %>% 
-  scale_abundance()
+colData(se) <- 
+  DataFrame(
+  colData(se) %>% 
+    as.data.frame() %>% 
+    mutate(skin_type = as.character(skin_type),
+           skin_type = ifelse(skin_type == "NN", "HC", skin_type),
+           skin_type = forcats::fct_relevel(skin_type, c("HC", "NL", "LS")))
+  )
 
 g_non_pseudo <- 
   rownames(se) %>% 
@@ -169,6 +170,16 @@ g_non_pseudo <-
 
 se <-
   se[g_non_pseudo,]
+
+# make a cope of a non-filtered se
+se_prifilt <- se
+
+# filter out genes 
+se <- 
+  se %>% 
+  keep_abundant(factor_of_interest = skin_type) %>% 
+  scale_abundance()
+
 ```
 
 ```{r generate KRTAP}

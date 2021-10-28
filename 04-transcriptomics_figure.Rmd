@@ -281,7 +281,21 @@ gsea_res_filt <-
          des = ifelse(gs_name %in% c("MIR:MIRDB", "TFT:GTRD"),
                       pathway %>% str_replace("_TARGET_GENES", " target genes"),
                       des)) %>% 
-  unnest()
+  unnest() %>% 
+  mutate(contrast = case_when(
+           contrast == "AD-LSvsAD-NL" ~ "LSvsNL",
+           contrast == "AD-LSvsCO" ~ "LSvsHC",
+           contrast == "AD-NLvsCO" ~ "NLvsHC",
+           contrast == "LSvsNN" ~ "LSvsHC",
+           contrast == "NLvsNN" ~ "NLvsHC",
+           contrast == "Adult_LSvsAdult_NL" ~ "Adult_LSvsNL",
+           contrast == "Adult_NNvsChildren_NN" ~ "Adult_HCvsChildren_HC",
+           contrast == "Children_LSvsChildren_NL" ~ "Children_LSvsNL",
+           contrast == "LS/NL_derm" ~ "LSvsNL_dermis",
+           contrast == "LS/NL_epi" ~ "LSvsNL_epidermis",
+           contrast == "LS/NL_FT" ~ "LSvsNL_full tissue",
+           TRUE ~ contrast)) 
+
 
 gsea_ad_p <-
   gsea_res_filt %>% filter(pathway %in% gs_ad, 
@@ -300,20 +314,7 @@ gsea_ad_p <-
                                             "NL/NN_derm",
                                             "NL/NN_FT")) %>% 
   mutate(
-    contrast = case_when(
-      contrast == "AD-LSvsAD-NL" ~ "LSvsNL",
-      contrast == "AD-LSvsCO" ~ "LSvsHC",
-      contrast == "AD-NLvsCO" ~ "NLvsHC",
-      contrast == "LSvsNN" ~ "LSvsHC",
-      contrast == "NLvsNN" ~ "NLvsHC",
-      contrast == "Adult_LSvsAdult_NL" ~ "Adult_LSvsNL",
-      contrast == "Adult_NNvsChildren_NN" ~ "Adult_HCvsChildren_HC",
-      contrast == "Children_LSvsChildren_NL" ~ "Children_LSvsNL",
-      contrast == "LS/NL_derm" ~ "LSvsNL_dermis",
-      contrast == "LS/NL_epi" ~ "LSvsNL_epidermis",
-      contrast == "LS/NL_FT" ~ "LSvsNL_full tissue",
-      TRUE ~ contrast),
-    des = des %>% str_replace("interleukin|Interleukin", "IL"),
+    des = des %>% str_replace_all("interleukin|Interleukin", "IL"),
     cat = case_when(
     pathway %in% c("PID_IL23_PATHWAY",
                    "KEGG_JAK_STAT_SIGNALING_PATHWAY",
@@ -342,9 +343,7 @@ gsea_ad_p <-
 
 gsea_ad_p
 
-# png("figure/gsea_ad.png", width = 480*6, height = 480*4, res = 300)
-# gsea_ad_p
-# dev.off()
+# ggsave("figure/gsea_ad.png", gsea_ad_p, width = 8, height = 7)
 ```
 
 ## Variance analysis
@@ -455,9 +454,8 @@ vp_core_p <-
 vp_core_p
 
 # save the plot (Not execuate)
-# png("figure/vp_core.png", width = 480*20*1.2, height= 480*12*1.2, res = 600)
-# vp_core_p
-# dev.off()
+ggsave("figure/vp_core.png", vp_core_p, 
+       width = 12 * 1.2, height = 8 * 1.2, dpi = "retina")
 ```
 
 ## Hair
@@ -508,10 +506,17 @@ heatmap <- ComplexHeatmap::Heatmap(KRTAP_filt_d,
 draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
-# png("figure/heatmap_KRTAP.png", width = 480*6.5, height = 480*5.5, res=300)
-# draw(heatmap, heatmap_legend_side = "right",
-#      annotation_legend_side = "top", merge_legend = FALSE)
-# dev.off()
+png("figure/heatmap_KRTAP.png", width = 480 * 1.5, height = 480 * 1.5)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+
+pdf("figure/heatmap_KRTAP.pdf", width = 8, height = 5)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+
+ggsave("figure/hemap_hair.png", heatmap_hair)
 ```
 
 
@@ -540,12 +545,13 @@ gsea_r_p <-
   scale_size_area(max_size = 6) + 
   scale_color_gradient2(low="blue", mid = "white", high="red") +
   theme_bw() +
-  facet_grid(~project, scales = "free", space = "free") +
+  facet_grid(gs_name~project, scales = "free", space = "free") +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
 
 # png("figure/gsea_r.png", width = 480*4, height = 480*3, res = 300)
 # gsea_r_p
 # dev.off()
+
 ```
 
 ```{r vp - LINC}
@@ -594,6 +600,9 @@ regulatory_p
 # png("figure/regulatory_p.png", width = 480*20, height= 480*12, res = 600)
 # regulatory_p
 # dev.off()
+
+ggsave("figure/regulatory_p.png", regulatory_p, 
+       height = 8, width = 14, dpi = "retina")
 ```
 
 

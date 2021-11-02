@@ -84,5 +84,5 @@ DGE_condition_rs_specific_non <-
 DGE_time <-
   list(DGE_condition_rs_specific,
        DGE_condition_rs_specific_non)
-DGE_time$des <- "DGE_condition_rs_specific: dge on time condition specific; DGE_condition_rs_specific_non: dge on time condition non-specific"
-saveRDS(DGE_time, "data/dge_time.rds")
+DGE_time$des <- "DGE_condition_rs_specific: dge on time condition specific; DGE_condition_rs_specific_non: dge on time condition non-specific; non-maps"
+saveRDS(DGE_time, "data/dge_time_nmap.rds")

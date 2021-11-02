@@ -6,7 +6,7 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, purrr,
                BiocParallel, Biobase,
                DESeq2)
 core_n <- future::availableCores()
-register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n / 2)))
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, 16)))
 se <- readr::read_rds("data/se.rds")
 
 se <- se[,!is.na(se$visit_quarter)]

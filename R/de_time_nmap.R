@@ -6,19 +6,19 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, purrr,
                BiocParallel, Biobase,
                DESeq2)
 core_n <- future::availableCores()
-register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n / 2)))
+register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, 20)))
 se <- readr::read_rds("data/se.rds")
 
 se <- se[,!is.na(se$visit_quarter)]
 
 # filter out those who participated only in longitudinal studies
-# longitudinal_subject <-
-#   colData(se) %>% as_tibble() %>%
-#   select(subject, visit) %>% distinct() %>%
-#   group_by(subject) %>%
-#   summarise(n = n()) %>% filter(n>1) %>% pull(subject)
+longitudinal_subject <-
+  colData(se) %>% as_tibble() %>%
+  select(subject, visit) %>% distinct() %>%
+  group_by(subject) %>%
+  summarise(n = n()) %>% filter(n>1) %>% pull(subject)
 
-# se <- se %>% filter(subject %in% longitudinal_subject)
+se <- se %>% filter(subject %in% longitudinal_subject)
 
 DGE_time_d <-
   tibble(C1 = rep(c("LS", "LS", "NL"), 2),

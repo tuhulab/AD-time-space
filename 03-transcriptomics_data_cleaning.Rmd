@@ -304,32 +304,27 @@ dge_tstat_result <-
     f <- paste("~", dge_tstat_design$t[index])
     deseq <- DESeqDataSet(se, design = as.formula(f))
     deseq <- DESeq(deseq, test = "LRT", reduced = ~ 1, 
-                   parallel = T, BPPARAM = MulticoreParam(6))
+                   parallel = T, BPPARAM = MulticoreParam(8))
     deseq <- results(deseq)
     deseq <- as_tibble(deseq, rownames = "gene_name") %>% 
       mutate(name = dge_tstat_design$name[[index]])
   }, .progress = "text")
-
+saveRDS(dge_tstat_result, "data/dge_tstat_result.rds")
 
 dge_tstat_result_filt <-
-  map2_dfr(dge_tstat_result,
+  map_dfr(dge_tstat_result,
            ~ filter(.x, padj < .05, abs(log2FoldChange) > 1)) 
 
-dge_tstat_g <- dge_time_result_filt$gene_name %>% unique
-writeLines(g_t, "data/enrichr_gt.txt")
+dge_tstat_g <- dge_tstat_result_filt$gene_name %>% unique
 
 library(enrichR)
 setEnrichrSite("Enrichr")
 dbs <- c("Human_Gene_Atlas", "ARCHS4_Tissues")
 enriched <- 
-  enrichr(g_t, dbs)  
+  enrichr(dge_tstat_g, dbs)  
 ```
 
-
-
-=======
-
-### Visit as time
+### Condition specific time stability
 
 ```{r model time (visit), eval=FALSE, cache=TRUE}
 

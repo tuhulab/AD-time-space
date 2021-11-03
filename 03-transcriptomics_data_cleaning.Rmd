@@ -258,7 +258,7 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
 ```
 
 ## Differential expressed genes: anotomic area
-```{r DGE space, cache=TRUE}
+```{r DGE space, cache=TRUE, eval=FALSE}
 DGE_space <-
   tibble(
     C1 = c("LS", "NN"),
@@ -288,71 +288,66 @@ se <- readr::read_rds("data/se.rds")
 se <- se[,!is.na(se$visit_quarter)]
 ```
 
+### Time stability (dge_tstat)
 
-### Stability over time
 ```{r dge_time_alone}
-dge_time_alone <-
-  expand_grid(
-    skin_type = colData(se)$skin_type %>% unique,
-    t = c("visit", "visit_quarter")
-    ) %>% 
-  mutate(se = map(skin_type, ~ se[, se$skin_type == .x]),
-         f = paste("~", t),
-         deseq = map2(se, f, ~ DESeqDataSet(.x, design = .y %>% as.formula)),
-         deseq = map(deseq, ~ DESeq(.x, test = "LRT", reduced = ~ 1)),
-         deseq = map(deseq, ~ results(.x) %>% as_tibble(rownames = "gene_name")))
-
-dge_time_design <-
+dge_tstat_design <-
   expand_grid(
   skin_type = colData(se)$skin_type %>% unique,
   t = c("visit", "visit_quarter")
   ) %>% 
   mutate(name = paste(skin_type, t, sep = "_"))
   
-dge_time_result <-
-  lapply(1:nrow(dge_time_design), function(index){
-    se <- se[,se$skin_type == dge_time_design$skin_type[index]]
-    f <- paste("~", dge_time_design$t[index])
+dge_tstat_result <-
+  plyr::llply(1:nrow(dge_tstat_design), function(index){
+    se <- se[,se$skin_type == dge_tstat_design$skin_type[index]]
+    f <- paste("~", dge_tstat_design$t[index])
     deseq <- DESeqDataSet(se, design = as.formula(f))
     deseq <- DESeq(deseq, test = "LRT", reduced = ~ 1, 
-                   parallel = T, BPPARAM = MulticoreParam(4))
+                   parallel = T, BPPARAM = MulticoreParam(6))
     deseq <- results(deseq)
-    deseq <- as_tibble(deseq, rownames = "gene_name")
-  })
-names(dge_time_result) <- dge_time_design$name
+    deseq <- as_tibble(deseq, rownames = "gene_name") %>% 
+      mutate(name = dge_tstat_design$name[[index]])
+  }, .progress = "text")
 
-dge_time_result_wN <-
-  map2_dfr(dge_time_result,
-     dge_time_design$name,
-     ~ mutate(.x, name = .y) %>% 
-       filter(padj < .05, abs(log2FoldChange) > 1)) 
 
-g_t <- dge_time_result_wN$gene_name %>% unique
+dge_tstat_result_filt <-
+  map2_dfr(dge_tstat_result,
+           ~ filter(.x, padj < .05, abs(log2FoldChange) > 1)) 
+
+dge_tstat_g <- dge_time_result_filt$gene_name %>% unique
 writeLines(g_t, "data/enrichr_gt.txt")
 
 library(enrichR)
 setEnrichrSite("Enrichr")
 dbs <- c("Human_Gene_Atlas", "ARCHS4_Tissues")
-
 enriched <- 
   enrichr(g_t, dbs)  
 ```
 
 
 
+=======
+
 ### Visit as time
 
 ```{r model time (visit), eval=FALSE, cache=TRUE}
 
+
 # se <- readr::read_rds("data/se.rds")
 # clean the environment for parallel 
 # rm(list = ls()[ls() != "se"])
+
+# 
+# se <- readr::read_rds("data/se.rds")
+
+
 # LS vs NL
 se_v_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
 de_v_LSvsNL <- DESeq2::DESeqDataSet(se_v_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
 
 de_v_LSvsNL_m <- DESeq2::DESeq(de_v_LSvsNL, test="LRT", 
-                              reduced = ~  subject + visit + skin_type,
+                              reduced = ~ subject + visit + skin_type,
                               parallel = TRUE) # takes very long time to run
 
 de_v_LSvsNL_res <- 
@@ -561,6 +556,45 @@ enriched <-
 enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 
 # de_t_c_res %>% filter(contrast == "LSvsNN_v") %>% pull(gene_name) 
+```
+
+## Differential expressed genes: time (NEW)
+```{r load dge-time}
+dge_time <- 
+  readr::read_rds("data/dge_time.rds")
+
+names(dge_time)[1:2] <- 
+  c("DGE_condition_specific",
+    "DGE_condition_specific_non")
+
+dge_time[[1]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  group_by(t, contrast) %>% 
+  summarise(n = n())
+```
+
+```{r}
+dge_time[[2]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  group_by(t, contrast, result_n) %>% summarise(n = n())
+
+
+dge_time[[2]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  filter(t == "visit") %>% pull(gene_name) %>% unique()
+
+  
+library(enrichR)
+setEnrichrSite("Enrichr")
+dbs <- c("Human_Gene_Atlas")
+
+enriched <- 
+  enrichr(dge_time[[2]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  filter(t == "visit") %>% pull(gene_name) %>% unique(), 
+  dbs)
+
+enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
 ```
 
 

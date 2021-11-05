@@ -668,7 +668,7 @@ se["CKAP2LP1",] %>%
 
 ## Cell deconvolution
 ```{r MuSic, cache=TRUE}
-
+# se <- readr::read_rds("data/se.rds")
 # Construct ExpressionSet for bulk RNA-seq
 se_scaled <- se
 # se_scaled <- 
@@ -678,9 +678,7 @@ multiomics <-
   as(se_scaled, "ExpressionSet")
 
 # Construct ExpressionSet for scRNA-seq
-emma_guttman <- readRDS(
-  url("https://gitcdn.link/repo/tuhulab/cell-type-deconvolute/main/data/emma-gutmann/ExpressionSet.rds")
-  )
+emma_guttman <- readRDS("data/ext/emma_scrna_ExpressionSet.rds")
 
 multiomics_music <- music_prop(bulk.eset = multiomics, sc.eset = emma_guttman,
                                clusters = "cell_type", samples = "sample_name")
@@ -731,7 +729,6 @@ multiomics_results %>%
         rotate = TRUE)
 ```
 
-
 ```{r appendix, eval=FALSE}
 multiomics_results_sample <- 
   multiomics_results %>%
@@ -781,8 +778,66 @@ multiomics_results_vis_two_sample <-
 multiomics_results_vis_two_sample
 ```
 
+```{r statics}
+multiomics_statics <-
+  data.matrix(multiomics_music$Est.prop.weighted) %>% 
+  as_tibble(rownames = "BAM_ID") %>% 
+  filter(Keratinocytes > .11) %>% 
+  mutate(across(!BAM_ID, ~ ifelse(.x == 0, NA, .x)),
+         across(!c("BAM_ID", "Keratinocytes"), ~ log(.x / Keratinocytes)))  %>% 
+  left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
+                # ~ log(.x / Keratinocytes)))
 
+summary(aov(`T-cells` ~ skin_type, 
+            data=multiomics_statics))
 
+```
+
+## IL34 and IL37
+```{r network}
+
+library(igraph)
+cytokine_df <- 
+  tibble(
+  cytosig_f = list.files("data/cytosig", full.names = T)) %>% 
+  mutate(cytokine = cytosig_f %>% basename() %>% str_remove(".csv"),
+         data = map(cytosig_f, ~ readr::read_csv(.x, show_col_types = FALSE))) %>% 
+  unnest(cols = c(data)) %>% 
+  dplyr::select(-cytosig_f, 
+                from = ID,
+                to = cytokine)
+
+cytokine_igraph <-  
+  igraph::graph_from_data_frame(
+    cytokine_df)
+
+par(mar = c(0,0,0,0))
+igraph::plot.igraph(cytokine_igraph, 
+                    edge.arrow.size = .2,
+                    edge.size = 100,
+                    edge.width = 5,
+                    vertex.size = 50,
+                    vertex.shape = "rectangle")
+
+library(tidygraph)
+library(ggraph)
+tbl_graph(edges = cytokine_df, directed = T) %>% 
+  activate(edges) %>% 
+  ggraph(layout = "graphopt") + 
+  geom_edge_link(
+    aes(start_cap = label_rect(node1.name),
+        end_cap = label_rect(node2.name)),
+    arrow = arrow(length = unit(2, "mm"))
+    ) + 
+  geom_node_text(aes(label = name)) +
+  theme_graph() 
+```
+
+```{r coexpression}
+
+se[rownames(se) %in% c("IL34", "IL37", cytokine_df$from),] %>% 
+  
+```
 
 
 

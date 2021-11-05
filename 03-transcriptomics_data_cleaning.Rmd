@@ -290,7 +290,7 @@ se <- se[,!is.na(se$visit_quarter)]
 
 ### Time stability (dge_tstat)
 
-```{r dge_time_alone}
+```{r dge_time_alone, eval=FALSE}
 dge_tstat_design <-
   expand_grid(
   skin_type = colData(se)$skin_type %>% unique,
@@ -304,256 +304,37 @@ dge_tstat_result <-
     f <- paste("~", dge_tstat_design$t[index])
     deseq <- DESeqDataSet(se, design = as.formula(f))
     deseq <- DESeq(deseq, test = "LRT", reduced = ~ 1, 
-                   parallel = T, BPPARAM = MulticoreParam(8))
+                   parallel = T, 
+                   BPPARAM = MulticoreParam(min(detectCores() - 2, 8)))
     deseq <- results(deseq)
     deseq <- as_tibble(deseq, rownames = "gene_name") %>% 
       mutate(name = dge_tstat_design$name[[index]])
   }, .progress = "text")
-saveRDS(dge_tstat_result, "data/dge_tstat_result.rds")
+# saveRDS(dge_tstat_result, "data/dge_tstat_result.rds")
+# dge_tstat_result <- readr::read_rds("data/dge_tstat_result.rds")
 
 dge_tstat_result_filt <-
   map_dfr(dge_tstat_result,
            ~ filter(.x, padj < .05, abs(log2FoldChange) > 1)) 
 
-dge_tstat_g <- dge_tstat_result_filt$gene_name %>% unique
-
 library(enrichR)
 setEnrichrSite("Enrichr")
+
+dge_tstat_result_filt_n <- 
+  dge_tstat_result_filt %>% group_by(name) %>% nest() %>% 
+  mutate(gene_name = map(data, ~ pull(.x, gene_name)),
+         enrichment = map(gene_name, ~ enrichr(., c("Reactome_2016"))))
+
+dge_tstat_g <- dge_tstat_result_filt$gene_name %>% unique
 dbs <- c("Human_Gene_Atlas", "ARCHS4_Tissues")
-enriched <- 
-  enrichr(dge_tstat_g, dbs)  
+enriched_dge_tstat <- enrichr(dge_tstat_g, dbs)
+
+map2_dfr(enriched_dge_tstat, dbs, 
+         ~ .x %>% mutate(name = .y) %>% 
+           filter(Adjusted.P.value < .05))
 ```
 
-### Condition specific time stability
-
-```{r model time (visit), eval=FALSE, cache=TRUE}
-
-
-# se <- readr::read_rds("data/se.rds")
-# clean the environment for parallel 
-# rm(list = ls()[ls() != "se"])
-
-# 
-# se <- readr::read_rds("data/se.rds")
-
-
-# LS vs NL
-se_v_LSvsNL <- se %>% filter(skin_type %in% c("LS", "NL"))
-de_v_LSvsNL <- DESeq2::DESeqDataSet(se_v_LSvsNL, ~ subject + visit + skin_type + skin_type * visit)
-
-de_v_LSvsNL_m <- DESeq2::DESeq(de_v_LSvsNL, test="LRT", 
-                              reduced = ~ subject + visit + skin_type,
-                              parallel = TRUE) # takes very long time to run
-
-de_v_LSvsNL_res <- 
-  bind_cols(tibble(gene_name = names(de_t_LSvsNL_m)),
-  DESeq2::results(de_t_LSvsNL_m) %>% as_tibble())
-
-de_v1_LSvsNL_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
-
-# LS vs NN
-se_t_LSvsNN <-
-  se %>%
-  filter(skin_type %in% c("LS", "NN"))
-
-de_t_LSvsNN <- DESeq2::DESeqDataSet(se_t_LSvsNN, ~  gender + visit + skin_type + skin_type * visit)
-
-de_t_LSvsNN_m <- DESeq2::DESeq(de_t_LSvsNN, test="LRT", 
-                              reduced = ~ gender + visit + skin_type,
-                              parallel = TRUE)
-de_t_LSvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_t_LSvsNN_m)),
-  DESeq2::results(de_t_LSvsNN_m) %>% as_tibble())
-
-# NL vs NN
-se_t_NLvsNN <-
-  se %>%
-  filter(skin_type %in% c("NL", "NN"))
-
-de_t_NLvsNN <- DESeq2::DESeqDataSet(se_t_NLvsNN, ~  gender + visit + skin_type + skin_type * visit)
-
-de_t_NLvsNN_m <- DESeq2::DESeq(de_t_NLvsNN, test="LRT", 
-                              reduced = ~ gender + visit + skin_type,
-                              parallel = TRUE)
-de_t_NLvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_t_NLvsNN_m)),
-  DESeq2::results(de_t_NLvsNN_m) %>% as_tibble())
-```
-
-```{r model time(visit)-summary, eval=FALSE}
-de_t_c_res <- 
-  bind_rows(de_t_LSvsNL_res %>% mutate(contrast = "LSvsNL_v"),
-            de_t_LSvsNN_res %>% mutate(contrast = "LSvsNN_v"),
-            de_t_NLvsNN_res %>% mutate(contrast = "NLvsNN_v")) %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1)
-
-de_t_c_res_s <-
-  de_t_c_res %>% 
-  group_by(contrast) %>% 
-  summarise(n_dysregulated_genes = n())
-
-de_t_c_res_s
-```
-
-```{r model time(visit)-vis, eval=FALSE}
-heatmap_de_model <- 
-  function(de_model){
-    de_model_res <- 
-      bind_cols(tibble(gene_name = names(de_model)),
-                DESeq2::results(de_model) %>% as_tibble())
-    betas <- coef(de_model)
-    
-    topGenes <- 
-      de_model_res %>% filter(padj < .05) %>% arrange(padj) %>% 
-      head(20) %>% pull(gene_name)
-    
-    col_to_plot <- colnames(betas) %>%
-                   str_extract("(visit|visit_quarter)[:graph:]{1,}") %>% 
-                   purrr::discard(is.na)
-    mat <- betas[topGenes, col_to_plot]
-    colnames(mat) <- col_to_plot %>% str_remove("visit_quarter") %>% str_remove("^_")
-    thr <- 3 
-    mat[mat < -thr] <- -thr
-    mat[mat > thr] <- thr
-    pheatmap(mat, 
-             breaks=seq(from=-thr, to=thr, length=101), 
-             cluster_col=FALSE, angle_col = "45", 
-             main = deparse(substitute(de_model)) %>% str_extract("(LS|NL)vs(NL|NN)"))
-  }
-
-# betas <- coef(de_t_LSvsNL_m)
-# colnames(betas)
-# topGenes <- names(de_t_LSvsNN_m)[head(order(de_t_LSvsNN_res$padj),20)]
-# mat <- betas[topGenes, -c(1,2)]
-# thr <- 3 
-# mat[mat < -thr] <- -thr
-# mat[mat > thr] <- thr
-# pheatmap(mat, breaks=seq(from=-thr, to=thr, length=101),
-#          cluster_col=FALSE)
-heatmap_de_model(de_t_LSvsNL_m)
-heatmap_de_model(de_t_LSvsNN_m)
-heatmap_de_model(de_t_NLvsNN_m)
-```
-
-```{r examples-time-effect, eval=FALSE}
-SPAAR <- plotCounts(de_t_LSvsNL_m, 
-                    gene = "SPAAR", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NL")))
-
-SPAAR %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("SPAAR (Small Regulatory Polypeptide Of Amino Acid Response)") +
-  theme_classic()
-
-KRT27 <- plotCounts(de_t_LSvsNN_m, 
-                    gene = "KRT27", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
-
-
-KRT27 %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("KRT27") +
-  theme_classic()
-
-KRT9 <- plotCounts(de_t_LSvsNN_m, 
-                    gene = "KRT9", 
-                    c("skin_type", "visit"), returnData = TRUE)  %>% 
-  mutate(skin_type = skin_type %>% forcats::fct_relevel(c("LS", "NN")))
-
-KRT9 %>% 
-  ggplot(aes(x = visit, y = count, color = skin_type, group = skin_type)) +
-  geom_point() + stat_summary(fun = mean, geom = "line") + 
-  scale_y_log10() +
-  ggtitle("KRT9") +
-  theme_classic()
-```
-
-### Quarter as time
-
-```{r model time(quarter), cache=TRUE, eval=FALSE}
-se <- se[, - which(is.na(se$visit_quarter))]
-se_q_LSvsNL <- se[, se$skin_type %in% c("LS", "NL")]
-se_q_LSvsNN <- se[, se$skin_type %in% c("LS", "NN")]
-se_q_NLvsNN <- se[, se$skin_type %in% c("NL", "NN")]
-
-# LS vs NL
-de_q_LSvsNL <- DESeq2::DESeqDataSet(se_q_LSvsNL, ~ subject + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_LSvsNL_m <- DESeq2::DESeq(de_q_LSvsNL, test="LRT", 
-                              reduced = ~  subject + visit_quarter + skin_type,
-                              parallel = TRUE)
-
-de_q_LSvsNL_res <- 
-  bind_cols(tibble(gene_name = names(de_q_LSvsNL_m)),
-  DESeq2::results(de_q_LSvsNL_m) %>% as_tibble())
-
-# LS vs NN
-de_q_LSvsNN <- DESeq2::DESeqDataSet(se_q_LSvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_LSvsNN_m <- DESeq2::DESeq(de_q_LSvsNN, test="LRT", 
-                              reduced = ~ gender + visit_quarter + skin_type,
-                              parallel = TRUE)
-de_q_LSvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_q_LSvsNN_m)),
-  DESeq2::results(de_q_LSvsNN_m) %>% as_tibble())
-
-# NL vs NN
-de_q_NLvsNN <- DESeq2::DESeqDataSet(se_q_NLvsNN, ~  gender + visit_quarter + skin_type + skin_type * visit_quarter)
-
-de_q_NLvsNN_m <- DESeq2::DESeq(de_q_NLvsNN, test="LRT", 
-                              reduced = ~ gender + visit_quarter + skin_type,
-                              parallel = TRUE)
-de_q_NLvsNN_res <- 
-  bind_cols(tibble(gene_name = names(de_q_NLvsNN_m)),
-  DESeq2::results(de_q_NLvsNN_m) %>% as_tibble())
-```
-
-```{r model time(quarter)-summary, eval=FALSE}
-de_q_c_res <- 
-  bind_rows(de_q_LSvsNL_res %>% mutate(contrast = "LSvsNL_q"),
-            de_q_LSvsNN_res %>% mutate(contrast = "LSvsNN_q"),
-            de_q_NLvsNN_res %>% mutate(contrast = "NLvsNN_q")) %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1)
-
-de_q_c_res_s <-
-  de_q_c_res %>% 
-  group_by(contrast) %>% 
-  summarise(n_dys = n())
-
-de_q_c_res_s
-```
-
-```{r model time(quarter)-vis, eval=FALSE}
-heatmap_de_model(de_q_LSvsNN_m)
-heatmap_de_model(de_q_NLvsNN_m)
-```
-
-### Over-representation analysis
-
-```{r over-representation of time effect, eval=FALSE}
-setEnrichrSite("Enrichr")
-dbs <- c("GO_Molecular_Function_2021", 
-         "GO_Cellular_Component_2021", 
-         "GO_Biological_Process_2021",
-         "KEGG_2021_Human", 
-         "WikiPathway_2021_Human", 
-         "Reactome_2016")
-
-enriched <- 
-  enrichr(de_q_c_res %>% filter(contrast == "LSvsNN_q") %>% pull(gene_name), dbs)
-
-enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
-
-# de_t_c_res %>% filter(contrast == "LSvsNN_v") %>% pull(gene_name) 
-```
-
-## Differential expressed genes: time (NEW)
+### Disease signature stability
 ```{r load dge-time}
 dge_time <- 
   readr::read_rds("data/dge_time.rds")
@@ -562,36 +343,43 @@ names(dge_time)[1:2] <-
   c("DGE_condition_specific",
     "DGE_condition_specific_non")
 
-dge_time[[1]] %>% unnest(cols = "result") %>% 
+dge_time[[2]] %>% unnest(cols = "result") %>% 
   filter(padj < .05, abs(log2FoldChange) > 1) %>% 
   group_by(t, contrast) %>% 
   summarise(n = n())
+
+ad_sig_stat_g <- 
+  dge_time[[2]] %>% unnest(cols = "result") %>% 
+    filter(padj < .05, abs(log2FoldChange) > 1) %>% filter(contrast =="LSvsNL", t =="visit_quarter") %>% pull(gene_name)
+
+se["SAA2",] %>% as_tibble() %>% 
+  ggline(x = "visit_quarter", 
+         y = "counts_scaled",
+         facet.by = "feature",
+         add = "mean",
+         color = "skin_type") %>% 
+  ggpar(yscale = "log10")
+
+se[ad_sig_stat_g,] %>% as_tibble() %>% 
+  ggline(x = "visit_quarter", 
+         y = "counts_scaled",
+         facet.by = c("feature", "skin_type"),
+         palette = pca_color,
+         color = "skin_type", scales = "free")
+
 ```
 
+### Condition(LS/NL/HC)-specific change
 ```{r}
-dge_time[[2]] %>% unnest(cols = "result") %>% 
+dge_time[[1]] %>% unnest(cols = "result") %>% 
   filter(padj < .05, abs(log2FoldChange) > 1) %>% 
-  group_by(t, contrast, result_n) %>% summarise(n = n())
+  group_by(t, contrast) %>% summarise(n = n())
 
-
-dge_time[[2]] %>% unnest(cols = "result") %>% 
+condition_specific_g <- 
+  dge_time[[1]] %>% unnest(cols = "result") %>% 
   filter(padj < .05, abs(log2FoldChange) > 1) %>% 
-  filter(t == "visit") %>% pull(gene_name) %>% unique()
-
-  
-library(enrichR)
-setEnrichrSite("Enrichr")
-dbs <- c("Human_Gene_Atlas")
-
-enriched <- 
-  enrichr(dge_time[[2]] %>% unnest(cols = "result") %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
-  filter(t == "visit") %>% pull(gene_name) %>% unique(), 
-  dbs)
-
-enriched %>% map_dfr(~.x) %>% filter(Adjusted.P.value < .05)
+  group_by(t, contrast) %>% nest() 
 ```
-
 
 ## Gene set enrichment analysis
 ```{r dge result}

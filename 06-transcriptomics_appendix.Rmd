@@ -219,52 +219,43 @@ novel_target_expr <-
 ```
 
 ```{r}
-p_IL34_IL37_a <-
-  novel_target_expr %>% 
-  ggscatter(x = "IL34", y = "IL37", add = "reg.line", conf.int = T,
-            cor.coef = T, cor.method = "spearman")
-
 p_IL34_IL37_sep <- 
   novel_target_expr %>% 
   ggscatter(x = "IL34", y = "IL37", add = "reg.line", conf.int = T, color = "skin_type",
             cor.coef = T, cor.method = "spearman", 
             facet.by = "skin_type", scales = "free", palette = pca_color)
 
-```
-
-```{r}
-p_IL34_IL37_a / p_IL34_IL37_sep
+png("figure/p_IL34_IL37.png", width = 480 * 2.2 * 3, height = 480 * 1.5 * 2, pointsize = 18, res = 300)
+p_IL34_IL37_sep + theme(plot.margin = margin(.1,.5,.1,.1,"cm"))
+dev.off()
 ```
 
 ### IL34 and CSF1
 
 ```{r}
-novel_target_expr %>% 
-  ggscatter(x = "IL34", y = "CSF1", add = "reg.line", conf.int = T,
-            cor.coef = T, cor.method = "spearman")
-```
-
-```{r}
-novel_target_expr %>% 
+p_IL34_CSF1_sep <- 
+  novel_target_expr %>% 
   ggscatter(x = "IL34", y = "CSF1", add = "reg.line", conf.int = T, color = "skin_type",
             cor.coef = T, cor.method = "spearman", 
-            facet.by = "skin_type", scale = "free", palette = pca_color)
+            facet.by = "skin_type", scales = "free", palette = pca_color)
+png("figure/p_IL34_CSF1.png", width = 480 * 2.2 * 3, height = 480 * 1.5 * 2, pointsize = 18, res = 300)
+p_IL34_CSF1_sep + theme(plot.margin = margin(.1,.5,.1,.1,"cm"))
+dev.off()
 ```
 
 ### IL34 and CSF1R
 
 ```{r}
-novel_target_expr %>% 
-  ggscatter(x = "IL34", y = "CSF1R", add = "reg.line", conf.int = T,
-            cor.coef = T, cor.method = "spearman")
-```
-
-```{r}
-novel_target_expr %>% 
+p_IL34_CSF1R_sep <- 
+  novel_target_expr %>% 
   ggscatter(x = "IL34", y = "CSF1R", add = "reg.line", conf.int = T, color = "skin_type",
             cor.coef = T, cor.method = "spearman", 
-            facet.by = "skin_type", scale = "free", palette = pca_color)
+            facet.by = "skin_type", scales = "free", palette = pca_color)
+png("figure/p_IL34_CSF1R.png", width = 480 * 2.2 * 3, height = 480 * 1.5 * 2, pointsize = 18, res = 300)
+p_IL34_CSF1R_sep + theme(plot.margin = margin(.1,.5,.1,.1,"cm"))
+dev.off()
 ```
+
 
 
 

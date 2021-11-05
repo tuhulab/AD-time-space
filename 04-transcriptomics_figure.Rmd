@@ -833,12 +833,19 @@ tbl_graph(edges = cytokine_df, directed = T) %>%
   theme_graph() 
 ```
 
-```{r coexpression}
+```{r correlation coefficient}
+cor <- 
+  se %>% assay(2) %>% t() %>% cor(method = "spearman")
 
-se[rownames(se) %in% c("IL34", "IL37", cytokine_df$from),] %>% 
-  
+cor_IL3437 <- 
+  cor[,c("IL34", "IL37")] %>% 
+  as_tibble(rownames = "gene_name") %>% 
+  filter(abs(IL34) > .5 | abs(IL37) > .5)
 ```
 
+```{r}
+library(CEMiTool)
+```
 
 
 

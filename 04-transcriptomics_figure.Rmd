@@ -179,58 +179,6 @@ dev.off()
 ```
 
 
-#### LINC
-```{r}
-se_linc <- se[LINC,]
-
-heatmap_linc_data <- 
-  se_linc 
-# %>% keep_variable(.abundance = counts_scale, top = 50)
-heatmap_linc_data_m <-
-  scale(assay(heatmap_linc_data, 2) %>% t() %>% log1p(), 
-        center = TRUE, scale = TRUE) %>% t()
-sample_site_color <- 
-  colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
-color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
-names(color) <- sample_site_color
-heatmap_linc_annotation <- 
-  HeatmapAnnotation(
-    `Tissue type` = colData(heatmap_linc_data) %>% as_tibble() %>% pull(skin_type), 
-    `Anatomic region` = colData(heatmap_linc_data) %>% as_tibble() %>% pull(biopsy_area),
-    col = list(`Tissue type` = pca_color,
-               `Anatomic region` = color),
-    # simple_anno_size = unit(1, "cm"),
-    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
-                                                        # grid_height = unit(2, "cm"), 
-                                                        # grid_width = unit(1, "cm"), 
-                                                        title_gp = gpar(fontsize = 16),
-                                                        labels_gp = gpar(fontsize = 16)),
-                                   `Anatomic region` = list(nrow = 1,
-                                                          # grid_height = unit(2, "cm"), 
-                                                          # grid_width = unit(1, "cm"), 
-                                                          title_gp = gpar(fontsize = 16),
-                                                          labels_gp = gpar(fontsize = 16))
-                                   ))
-
-heatmap_linc <- ComplexHeatmap::Heatmap(heatmap_linc_data_m,
-                        name = "gene expression",
-                        column_dend_reorder = TRUE,
-                        # clustering_method_columns = "complete",
-                        show_column_names = FALSE,
-                        show_row_names = T,
-                        show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = min(15, 800 * 6 / dim(heatmap_data_m)[1])),
-                        top_annotation = heatmap_annotation,
-                        heatmap_legend_param = list(
-                          title_gp = gpar(fontsize = 16),
-                          labels_gp = gpar(fontsize = 14)
-                          ))
-
-draw(heatmap_linc, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-
-
-```
 
 
 

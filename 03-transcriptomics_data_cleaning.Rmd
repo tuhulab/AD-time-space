@@ -205,35 +205,35 @@ de_v1_LSvsNL_result <- de_v1_LSvsNL_LFC %>% as.data.frame() %>% tibble::rownames
 de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
 
 # V1 LSvsNN --------------------
-se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NN")]
+se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "HC")]
 de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
 de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
-de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_HC", type = "apeglm", parallel = TRUE, quiet = TRUE)
 de_v1_LSvsNN_result <- de_v1_LSvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
 
 # V1 LSvsNN --------------------
-se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "NN")]
+se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "HC")]
 de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
 de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
-de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_NN", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_HC", type = "apeglm", parallel = TRUE, quiet = TRUE)
 de_v1_NLvsNN_result <- de_v1_NLvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
 de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
 
 # Consolidate the results -----
 de_v1_c <-
   bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
-            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsNN"),
-            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsNN")) %>% 
+            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsHC"),
+            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsHC")) %>% 
   mutate(direction = ifelse(log2FoldChange > 0, "up", "down"))
 de_v1_c_s <-
   de_v1_c %>% 
-  group_by(contrast, direction) %>% 
+  group_by(contrast) %>% 
   summarise(n_dys = n())
 # No of dysregulated genes
 n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
-n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsNN") %>% pull(n_dys)
-n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsNN") %>% pull(n_dys)
+n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsHC") %>% pull(n_dys)
+n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsHC") %>% pull(n_dys)
 de_v1_c %>% readr::write_csv("data/de_v1_sig.csv")
 de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
@@ -562,27 +562,156 @@ gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest(
 
 ## LINC 
 ```{r}
-de_v1_full <- readr::read_rds("data/de_v1_full.rds")
-
-de_v1_full_t <-
-  de_v1_full %>% map2_dfr(names(de_v1_full),
-  function(x1,x2){
-    x1 <- x1 %>% mutate(contrast = x2)
-    }) %>% 
-  filter(padj < .05, abs(log2FoldChange) > 1)
+de_v1_full <- readr::read_csv("data/de_v1_sig.csv")
 
 LINC <- 
-  de_v1_full_t %>% filter(gene_name %>% str_detect("LINC"))
+  de_v1_full %>% filter(gene_name %>% str_detect("LINC")) %>% 
+  pull(gene_name) %>% unique()
 
-LINC %>% write.csv("data/LINC.txt")
+# LINC %>% write.csv("data/LINC.txt")
 
 
-  de_v1_full_t$gene_name %>% grep("LINC", . , value = T) %>% 
-  unique()
+# l_g <- de_v1_full_t$gene_name %>% unique %>% length
+# l_linc <- length(LINC)
+# l_linc / l_g 
 
-l_g <- de_v1_full_t$gene_name %>% unique %>% length
-l_linc <- length(LINC)
-l_linc / l_g 
 ```
 
+
+#### LINC
+```{r}
+se_linc <- se[LINC,]
+
+heatmap_linc_data <- 
+  se_linc 
+# %>% keep_variable(.abundance = counts_scale, top = 50)
+heatmap_linc_data_m <-
+  scale(assay(heatmap_linc_data, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+sample_site_color <- 
+  colData(heatmap_linc_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+heatmap_linc_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(heatmap_linc_data) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(heatmap_linc_data) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Anatomic region` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Anatomic region` = list(nrow = 1,
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 16))
+                                   ))
+
+heatmap_linc <- ComplexHeatmap::Heatmap(heatmap_linc_data_m,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_names = T,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = min(15, 800 * 6 / dim(heatmap_linc_data)[1])),
+                        top_annotation = heatmap_linc_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 16),
+                          labels_gp = gpar(fontsize = 14)
+                          ))
+
+draw(heatmap_linc, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+
+png("data/supplementary/heatmap_linc.png", 
+    width = 480*6, height = 480*10, res=300)
+draw(heatmap_linc, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
+
+## Disease severity change
+### Figure S6
+```{r}
+extensive_meta <- readr::read_csv("../multiomics-ad-transcriptomics//data/RNAseq_sample_annotation(extensive).csv")
+time_course_ad_subject <- 
+  extensive_meta %>% filter(visit == "02", group == "AD") %>% pull(subject) %>% unique
+
+disease_severity <- extensive_meta %>% 
+  dplyr::filter(subject %in% time_course_ad_subject) %>% 
+  dplyr::select(-skin_type) %>% 
+  distinct() %>% 
+  dplyr::select(visit, visit_quarter, subject, 
+                easi_total_score, scorad_objective, scorad) %>% 
+  tidyr::pivot_longer(cols = c("easi_total_score",
+                               "scorad_objective",
+                               "scorad"), 
+                      names_to = "disease_severity") %>% 
+  filter(subject != "AD_11") %>% 
+  mutate(disease_severity = 
+            case_when(disease_severity == "easi_total_score" ~ "EASI",
+                      disease_severity == "scorad" ~ "SCORAD",
+                      disease_severity == "scorad_objective" ~ "oSCORAD"),
+         disease_severity = forcats::fct_relevel(disease_severity,
+                                                 c("EASI", 
+                                                   "SCORAD",
+                                                   "oSCORAD")),
+         visit = visit %>% as.character(),
+         visit_quarter = visit_quarter %>% as.character())
+
+# disease_severity_v <- 
+disease_severity %>% select(-visit) %>% 
+  rename(visit = visit_quarter) %>% mutate(visit_type = "quarter") %>% 
+  bind_rows(disease_severity %>% select(-visit_quarter) %>% 
+  mutate(visit_type = "visit") %>% 
+    mutate(visit = paste0("V", visit %>% as.numeric()))) %>% 
+  ggboxplot(x = "visit", 
+            y = "value", 
+            add = "point", 
+            color = "visit", xlab = FALSE, ylab=FALSE) %>%
+  facet(facet.by = c("disease_severity", "visit_type"), nrow = 3, scales = "free") %>% 
+  set_palette("npg")
+```
+
+```{r}
+disease_severity_natural_year <- extensive_meta %>% 
+  dplyr::filter(subject %in% time_course_ad_subject) %>% 
+  dplyr::select(-skin_type) %>% 
+  distinct() %>% 
+  mutate(year = date_visit %>% format("%Y"),
+         year_quarter = paste0(year, visit_quarter)) %>% 
+  dplyr::select(visit, visit_quarter, year_quarter, subject, 
+                easi_total_score, scorad_objective, scorad) %>% 
+  tidyr::pivot_longer(cols = c("easi_total_score",
+                               "scorad_objective",
+                               "scorad"), 
+                      names_to = "disease_severity") %>% 
+  filter(subject != "AD_11") %>% 
+  mutate(disease_severity = 
+            case_when(disease_severity == "easi_total_score" ~ "EASI",
+                      disease_severity == "scorad" ~ "SCORAD",
+                      disease_severity == "scorad_objective" ~ "oSCORAD"),
+         disease_severity = forcats::fct_relevel(disease_severity,
+                                                 c("EASI", 
+                                                   "SCORAD",
+                                                   "oSCORAD")),
+         visit = visit %>% as.character(),
+         visit_quarter = visit_quarter %>% as.character())
+
+disease_severity_natural_year_g <- 
+  disease_severity_natural_year %>% 
+  ggplot(aes(year_quarter, value, group = subject, color = subject)) +
+  geom_point() + geom_line() + facet_grid(disease_severity~., scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Time") +
+  theme_classic() +
+  theme(axis.title.y =  element_blank())
+
+ggsave("data/supplementary/figure_s6.png", disease_severity_natural_year_g)
+```
 

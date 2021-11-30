@@ -1,213 +1,197 @@
 # Skin transcriptome data cleaning
 
-## Data cleaning
-```{r initiate data cleaning, echo=FALSE, message=FALSE, warning=FALSE}
-pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
-               tidybulk, tidySummarizedExperiment, 
-               ComplexHeatmap, ggpubr,
-               BiocParallel, Biobase, variancePartition,
-               DESeq2, limma, edgeR, MuSiC, convert, 
-               patchwork)
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE, fig.align = 'center')
-pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
-core_n <- future::availableCores()
-register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n / 2)))
-```
+## Baseline characteristics
 
-```{r load data}
-# read raw counts ---------------------------------------
-counts <-
-  data.table::fread("../multiomics-ad-transcriptomics/data/counts/counts_gene_name_redo.txt.gz") %>% 
-  mutate(Chr = Chr %>% str_extract("chr\\w{1,}(?=;)|chr\\w{1,}$"), #keeps only 1
-         Strand = Strand %>% str_extract("\\+|\\-"),               #keeps only 1
-         Start = Start %>% str_extract("\\d{1,}(?=;)|\\d{1,}$"),   #keeps only 1
-         End = End %>% str_extract("\\d{1,}(?=;)|\\d{1,}$")) %>%   #keeps only 1
-  filter(!Geneid %>% 
-           stringr::str_detect("\\d{1,}P$|\\d{1,}P\\d{1,}$|\\.|-AS\\d{1}|-DT")) %>% # apply gene filtering (pseudo genes, antisense genese, DT genes)
-  dplyr::rename_with(str_extract, starts_with("/home/projects/"), pattern = "NG-[:graph:]{1,}$")
+```{r baseline-statistics-table}
+extensive_meta <- 
+  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv") 
 
-# lib to merge -------------
-lib_id <- colnames(counts)[-1:-6] %>% str_extract("lib\\d{1,}") # extract lib id
-lib_id_t <- table(lib_id)
-lib_id_merge <- lib_id_t[(lib_id_t != 1)] %>% rownames() #lib_ids to be merged
+baseline_data <-  
+  extensive_meta %>% filter(visit == "01") %>% 
+  select(subject, 
+         group, 
+         # t test
+         age, 
+         bmi, 
+         contains("blood"),
+         # fisher's exact test
+         gender, 
+         smoker,
+         smoker_ever,
+         animal,
+         family_eczema,
+         family_atopy,
+         other_atopy,
+         other_diagnoses,
+         prick_test_result,
+         # Mann-Whitney-Wilcoxon Test
+         education,
+         drinks_per_week,
+         skin_type_fitzpatrick_scale,
+         grow_up_where,
+         # NOT FOR COMPARISON
+         easi_total_score, scorad, 
+         scorad_objective) %>% 
+  distinct() %>% 
+  mutate(ige_200h = ifelse(blood_ige > 200, TRUE, FALSE),
+         gender_female = ifelse(gender == "female", T, F),
+         family_eczema = ifelse(family_eczema == "-", 
+                                F,
+                                family_eczema),
+         family_eczema = as.logical(family_eczema),
+         other_atopy = ifelse(other_atopy == "-",
+                              F,
+                              other_atopy),
+         other_atopy = as.logical(other_atopy),
+         prick_test_result = case_when(prick_test_result == "POS" ~ TRUE,
+                                       prick_test_result == "NEG" ~ FALSE,
+                                       TRUE ~ NA),
+         education = ifelse(education == "meidium_higher_education",
+                            "medium_higher_education",
+                            education),
+         education = case_when(education == "primary_school" ~ 0,
+                               education == "high_school" ~ 1,
+                               education == "short_higher_education" ~ 2,
+                               education == "medium_higher_education" ~ 3,
+                               education == "long_higher_education" ~ 4),
+         drinks_per_week = case_when(drinks_per_week == "0" ~ 0,
+                                     drinks_per_week == "1_7" ~ 1,
+                                     drinks_per_week == "7_14" ~ 2,
+                                     drinks_per_week == "15_" ~ 3))
 
-# merge technical replicates -------------------------------------------
-source("../multiomics-ad-transcriptomics/R/helper.R")
+# Mann-Whitney-Wilcoxon Test
+wilcox_test_d <-
+  baseline_data %>% 
+  select(subject, group, 
+         education, skin_type_fitzpatrick_scale, drinks_per_week) %>% 
+  pivot_longer(cols = c("education", "skin_type_fitzpatrick_scale", "drinks_per_week"),
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(p_value = map_dbl(data, function(data){
+    CO <- data %>% filter(group == "CO")
+    AD <- data %>% filter(group == "AD")
+    wilcox.test(CO$value, AD$value, exact = F)$p.value
+  }))
 
-counttable_LibMerged <- 
-  bind_cols(counts[, 1:6], 
-            counttable_merge_library_fun(counts %>% dplyr::select(-1:-6), lib_id_merge)) 
+# t test
+t_test_d <- 
+  baseline_data %>% 
+  select(subject, group, contains("blood"), age, bmi) %>% 
+  pivot_longer(cols = !c("subject", "group"), 
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(p_value = map(data, function(data){
+    CO <- data %>% filter(group == "CO")
+    AD <- data %>% filter(group == "AD")
+    t.test(CO$value, AD$value, na.rm = T)$p.value
+  }))
 
-# clinical records ------------------------
-clinical_records <- 
-  readr::read_csv("../multiomics-ad-transcriptomics/data/LEO-AD-metadata.csv") %>% 
-  mutate(id = id %>% str_replace("-", "_"),
-         JOIN_ID = paste(id, paste0("0",visit_no), sep="_"))
 
-extensive_meta <-
-  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv")
-```
+# fisher's exact test
+fisher_test_d <-
+  baseline_data %>% 
+  select(subject, group, gender_female, smoker, smoker_ever,
+         animal, family_eczema, family_atopy, 
+         other_atopy, other_diagnoses,
+         prick_test_result) %>% 
+  pivot_longer(cols = !c("subject", "group"),
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(
+    AD = map_dbl(data, function(data){
+      data %>% filter(group == "AD", value == TRUE) %>% nrow()
+    }),
+    CO = map_dbl(data, function(data){
+      data %>% filter(group == "CO", value == TRUE) %>% nrow()
+    }),
+    p_value = map_dbl(data, function(data){
+      test <- data %>% select(-subject) %>% table %>% fisher.test()
+      test$p.value
+      })
+    )
 
-```{r SummarizedExperiment}
-# revised biopsy area by Tanja
-revised_biopsy_area <- 
-  readr::read_csv("../multiomics-ad-transcriptomics/data/tanja_replicate_location.csv") %>% 
-  mutate(biopsy_area = biopsy_area %>% str_replace_all(" ", "_"))
 
-# revise space infomation
-biopsy_area <- 
-  extensive_meta %>% 
-  select(BAM_ID, biopsy_area_old = biopsy_area) %>% 
-  left_join(revised_biopsy_area %>% select(BAM_ID, biopsy_area)) %>% 
-  mutate(biopsy_area = ifelse(is.na(biopsy_area), biopsy_area_old, biopsy_area)) %>% 
-  mutate(biopsy_area = ifelse(biopsy_area == "læg", "leg", biopsy_area)) %>% 
-  select(-biopsy_area_old) %>% 
-  add_case(BAM_ID = "NG-23830_01_AD_07_BI_LS_01_E9_lib390881_6751_1.bam",
-           biopsy_area = "arm")
+  
+clinic_summary <- 
+ baseline_data %>% select(-subject) %>% group_by(group) %>% 
+  summarize(no_subject = n(),
+            female_percent = mean(gender == "female") * 100,
+            age_mean = mean(age), age_sd = sd(age), 
+            bmi_mean = mean(bmi), bmi_sd = sd(bmi), 
+            blood_ige_mean = mean(blood_ige, na.rm = TRUE), blood_ige_sd = sd(blood_ige, na.rm = TRUE),
+            blood_leukocyte_mean = mean(blood_leukocyte, na.rm=T), 
+            blood_leukocyte_sd = sd(blood_leukocyte, na.rm=T),
+            blood_lymphocyte_mean = mean(blood_lymphocyte, na.rm=T), 
+            blood_lymphocyte_sd = sd(blood_lymphocyte, na.rm=T),
+            blood_monocyte_mean = mean(blood_monocyte, na.rm=T),
+            blood_monocyte_sd = sd(blood_monocyte, na.rm=T),
+            blood_neutrophil_mean = mean(blood_neutrophil, na.rm = T),
+            blood_neutrophil_sd = sd(blood_neutrophil, na.rm = T),
+            blood_eosinophil_mean = mean(blood_eosinophil, na.rm = T),
+            blood_eosinophil_sd = sd(blood_eosinophil, na.rm = T),
+            blood_basophil_mean = mean(blood_basophil, na.rm = T),
+            blood_basophil_sd = sd(blood_basophil, na.rm = T),
+            easi_mean = mean(easi_total_score), easi_sd = sd(easi_total_score), 
+            scorad_mean = mean(scorad, na.rm = TRUE), scorad_sd = sd(scorad, na.rm = TRUE),
+            oscorad_mean = mean(scorad_objective, na.rm = TRUE), 
+            oscorad_sd = sd(scorad_objective, na.rm = TRUE),
+            ige_mean = mean(blood_ige, na.rm = TRUE), 
+            ige_sd = sd(blood_ige, na.rm = TRUE),
+            ige_median = median(blood_ige, na.rm = TRUE),
+            ige_200h = sum(blood_ige > 200, na.rm = TRUE))
 
-# se col_data
-col_data <-
+p_value <- 
   tibble(
-    # definingn metadata --------------------------------------
-    BAM_ID = colnames(counttable_LibMerged)[-1:-6]) %>% 
-    mutate(sequencing_batch = BAM_ID %>% str_extract("NG-\\d{1,}"),
-           group = BAM_ID %>% str_extract("AD|CO") %>% 
-               forcats::fct_relevel(c("CO", "AD")),
-           subject = BAM_ID %>% str_extract("(AD|CO)_\\d{2,}"),
-           visit = BAM_ID %>% str_extract("\\d{2,}_(AD|CO)") %>% str_extract("\\d{2,}"),
-           skin_type = BAM_ID %>% str_replace("TS", "LS") %>% str_extract("NN|NL|LS") %>% forcats::fct_relevel(c("NN", "NL", "LS")),
-           replicate_ID = BAM_ID %>% str_replace("TS_BI", "BI_LS") %>% str_extract("(NN|NL|LS)_\\d{2,}") %>% str_extract("\\d{2,}"),
-           library_ID = BAM_ID %>% str_extract("lib\\d{1,}"),
-           sequencing_id = BAM_ID %>% str_extract("\\d{4}_(1|2)"),
-           JOIN_ID = base::paste(subject, visit, sep = "_")) %>%
-    left_join(clinical_records %>% select(id, gender) %>% filter(!is.na(gender)), by=c("subject"="id")) %>%
-    left_join(clinical_records %>% select(JOIN_ID, scorad, scorad_objective, easi_total_score, date_visit)) %>% 
-    select(-JOIN_ID) %>% 
-    mutate(gender = gender %>% forcats::fct_relevel(c("female", "male"))) %>% 
-    left_join(extensive_meta %>% select(BAM_ID, rna_quality, visit_quarter)) %>% 
-    left_join(biopsy_area)
+    `Female%` = baseline_data %>% select(gender, group) %>% 
+      table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    `Blood_Ige > 200` = baseline_data %>% select(group, ige_200h) %>% 
+      table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    age = t.test(x = baseline_data %>% filter(group == "AD") %>% select(age),
+                 y = baseline_data %>% filter(group == "CO") %>% select(age))$p.value,
+    bmi = t.test(x = baseline_data %>% filter(group == "AD") %>% select(bmi),
+                 y = baseline_data %>% filter(group == "CO") %>% select(bmi))$p.value,
+    `blood_ige` = t.test(x = baseline_data %>% filter(group == "AD") %>% select(blood_ige),
+                         y = baseline_data %>% filter(group == "CO") %>% select(blood_ige))$p.value) %>% 
+  mutate_all(round, digits = 2) %>% mutate_all(as.character)
 
-# Summarized Experiment--------------------
-se <- SummarizedExperiment::SummarizedExperiment(
-  assays = list(counts = counttable_LibMerged %>% select(-1:-6) %>% as.matrix),
-  colData = col_data
-)
-names(se) <- counttable_LibMerged$Geneid
+clinic_summary_t <-
+  clinic_summary %>% 
+  mutate(group = paste0(group, " (n=", no_subject,")"),
+         `Female%` = female_percent %>% round(),
+         age = paste(age_mean %>% round(1) , "±", age_sd %>% round(1)),
+         bmi = paste(bmi_mean %>% round(1) , "±", bmi_sd %>% round(1)),
+         blood_ige = paste(blood_ige_mean %>% round(1) , "±", blood_ige_sd %>% round(1)),
+         `Blood_Ige > 200` = round(ige_200h / no_subject, 2) * 100,
+         easi = paste(easi_mean %>% round(1) , "±", easi_sd %>% round(1)),
+         scorad = paste(scorad_mean %>% round(1) , "±", scorad_sd %>% round(1)),
+         oscorad = paste(oscorad_mean %>% round(1) , "±", oscorad_sd %>% round(1))) %>%
+  select(group, `Female%`:oscorad) %>%
+  column_to_rownames("group") %>% mutate_all(as.character) %>% 
+  add_row(tibble_row(p_value)) %>% 
+  t()
+
+colnames(clinic_summary_t)[3] <- "p-value"
+clinic_summary_t[6:8, 2:3] <- " / "
+rownames(clinic_summary_t)[1] <- "Female(%)"
+rownames(clinic_summary_t)[2] <- "Age"
+rownames(clinic_summary_t)[3] <- "BMI"
+rownames(clinic_summary_t)[4] <- "Blood IgE"
+rownames(clinic_summary_t)[5] <- "Blood IgE>200(%)"
+rownames(clinic_summary_t)[6] <- "EASI"
+rownames(clinic_summary_t)[7] <- "SCORAD"
+rownames(clinic_summary_t)[8] <- "oSCORAD"
+colnames(clinic_summary_t)[2] <- "HC (n=30)"
+knitr::kable(clinic_summary_t, 
+             format = "html", 
+             caption = "Baseline characteristics of AD and HC group") %>% 
+  kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test.")
+
+clinic_summary_t_xlsx <- clinic_summary_t %>% as_tibble(rownames = " ")
+clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test."
+# openxlsx::write.xlsx(clinic_summary_t_xlsx, 
+#                      "data/supplementary/table_s1.xlsx", overwrite = T)
 ```
 
-```{r filtering}
-# filter out samples ----------------
-se <- se[, se$BAM_ID != (assay(se) %>% colSums() %>% which.min %>% names)] # 392
-se <- se[, !se$library_ID %in% c("lib390174", "lib390716")] # 390
-```
-
-```{r revise some sp info}
-index_ad03v01ls01 <-
-  which(colData(se)$subject == "AD_03" &
-        colData(se)$visit == "01" &
-        colData(se)$skin_type == "LS" &
-        colData(se)$replicate_ID == "01")
-colData(se)$skin_type[index_ad03v01ls01] <- "NL"
-
-index_ad03v01nl01 <-
-  which(colData(se)$subject == "AD_03" &
-          colData(se)$visit == "01" &
-          colData(se)$skin_type == "NL" &
-          colData(se)$replicate_ID == "01")
-colData(se)$skin_type[index_ad03v01nl01] <- "LS"
-
-index_ad13v03nl01 <-
-  which(colData(se)$subject == "AD_13" &
-        colData(se)$visit == "03" &
-        colData(se)$skin_type == "NL" &
-        colData(se)$replicate_ID == "01")
-colData(se)$visit[index_ad13v03nl01] <- "05"
-colData(se)$skin_type[index_ad13v03nl01] <- "LS"
-colData(se)$replicate_ID[index_ad13v03nl01] <- "02"
-
-index_ad13v05ls02 <-
-  which(colData(se)$subject == "AD_13" &
-        colData(se)$visit == "05" &
-        colData(se)$skin_type == "LS" &
-        colData(se)$replicate_ID == "02")
-colData(se)$visit[index_ad13v05ls02] <- "03"
-colData(se)$skin_type[index_ad13v05ls02] <- "NL"
-colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
-```
-
-```{r Sample QC}
-sample_qc_record_edited <-
-  readr::read_csv("data/sample_qc_record - sample_qc_record.csv")
-```
-
-```{r exclude}
-exclude_BAM <- 
-  colData(se) %>% as_tibble() %>% 
-  select(BAM_ID, subject, visit, skin_type, replicate_ID) %>%
-  left_join(sample_qc_record_edited) %>% 
-  filter(exclude == TRUE) %>% pull(BAM_ID)
-```
-
-```{r generate new se}
-se <- se[, !se$BAM_ID %in% exclude_BAM]
-colData(se)$biopsy_area <- colData(se)$biopsy_area %>% 
-  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
-
-colData(se) <- 
-  DataFrame(
-  colData(se) %>% 
-    as.data.frame() %>% 
-    mutate(skin_type = as.character(skin_type),
-           skin_type = ifelse(skin_type == "NN", "HC", skin_type),
-           skin_type = forcats::fct_relevel(skin_type, c("HC", "NL", "LS")))
-  )
-
-g_non_pseudo <- 
-  rownames(se) %>% 
-  gprofiler2::gconvert() %>% 
-  filter(!description %>% str_detect("pseudogene")) %>% 
-  pull(input) %>% unique()
-
-se <-
-  se[g_non_pseudo,]
-
-# make a cope of a non-filtered se
-se_prifilt <- se
-
-# filter out genes 
-se <- 
-  se %>% 
-  keep_abundant(factor_of_interest = skin_type) %>% 
-  scale_abundance()
-
-```
-
-```{r generate KRTAP}
-se_KRTAP <- se_prifilt %>% 
-  keep_abundant(factor_of_interest = skin_type, minimum_proportion = .1) %>%
-  scale_abundance()
-```
-
-```{r KRTAP variance}
-KRTAP_hair <-
-  se_KRTAP %>% 
-  filter(feature %>% str_detect("KRTAP")
-           # c(paste0("KRTAP5-", 1:11), "KRTAP10-4")
-         ) %>% 
-  group_by(feature) %>% 
-  summarise(mean_expr = mean(counts), 
-            sd_expr = sd(counts)) %>%   
-  mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
-
-se_KRTAP_filt <- 
-  se_KRTAP %>% 
-  filter(feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(feature)))
-```
-
-```{r write out data, eval=FALSE}
-readr::write_rds(se, "data/se.rds")
-readr::write_rds(se_KRTAP_filt, "data/se_krtap_all24.rds")
-```
 
 ## Differential expressed genes: baseline
 
@@ -352,21 +336,6 @@ ad_sig_stat_g <-
   dge_time[[2]] %>% unnest(cols = "result") %>% 
     filter(padj < .05, abs(log2FoldChange) > 1) %>% filter(contrast =="LSvsNL", t =="visit_quarter") %>% pull(gene_name)
 
-se["SAA2",] %>% as_tibble() %>% 
-  ggline(x = "visit_quarter", 
-         y = "counts_scaled",
-         facet.by = "feature",
-         add = "mean",
-         color = "skin_type") %>% 
-  ggpar(yscale = "log10")
-
-se[ad_sig_stat_g,] %>% as_tibble() %>% 
-  ggline(x = "visit_quarter", 
-         y = "counts_scaled",
-         facet.by = c("feature", "skin_type"),
-         palette = pca_color,
-         color = "skin_type", scales = "free")
-
 ```
 
 ### Condition(LS/NL/HC)-specific change
@@ -379,7 +348,128 @@ condition_specific_g <-
   dge_time[[1]] %>% unnest(cols = "result") %>% 
   filter(padj < .05, abs(log2FoldChange) > 1) %>% 
   group_by(t, contrast) %>% nest() 
+
+se[c("SAA2", "KRT27", "MUC1", "MGST1",
+     "KRT71", "SHISA2", "PTGS2"),] %>% as_tibble() %>% 
+    ggline(x = "visit_quarter", 
+           y = "counts_scaled",
+           facet.by = "feature",
+           add = c("mean", "dotplot"),
+           color = "skin_type", 
+           palette = pca_color,
+           xlab = "Quarter",
+           ylab = "Counts") %>% 
+    ggpar(yscale = "log10")
+
+se[c("KRT16", "KRT18", "KRT27", 
+     "KRT7", "KRT71", "KRT80"),] %>% as_tibble() %>% 
+    ggline(x = "visit_quarter", 
+           y = "counts_scaled",
+           facet.by = "feature",
+           add = c("mean", "dotplot"),
+           color = "skin_type", 
+           palette = pca_color,
+           xlab = "Quarter",
+           ylab = "Counts") %>% 
+    ggpar(yscale = "log10")
+
 ```
+
+### Time outlier figure
+```{r}
+time_outlier <-
+  dge_tstat_result_filt %>% 
+  select(gene_name, name) %>% 
+  mutate(skin_type = str_extract(name, "(LS|NL|NN)"),
+         skin_type = ifelse(skin_type == "NN", "HC", skin_type),
+         t = str_extract(name, "(visit$|visit_quarter)")) %>% 
+  select(-name) %>% 
+  group_by(skin_type, t) %>% nest() %>% 
+  mutate(g_n = map(data, "gene_name")) %>% 
+  mutate(figure = 
+           pmap(list(g_n, skin_type, t),
+                       function(g_n, skin_type, t){
+  plot <-
+    se[g_n, se$skin_type == skin_type] %>% as_tibble() %>% 
+    ggboxplot(x = t,
+              y = "counts_scaled",
+              facet.by = "feature",
+              xlab = ifelse(t == "visit_quarter", 
+                            "quarter",
+                            t),
+              ylab = FALSE,
+              scales = "free", title = skin_type)
+  }),
+        save_f = pmap(list(skin_type, t, figure),
+                      function(skin_type, t, figure){
+          name = paste0("supplement_t_outlier_", paste(skin_type, t, sep = "_"),".png")
+          ggsave(filename = paste0("figure/supplement_t_outlier", name),
+                 figure, width = 16.8, height = 11.8)
+        }))
+
+```
+
+## Biological replicates
+```{r found biological replicates}
+
+bioreplicates <-
+  colData(se) %>% as_tibble() %>% 
+  mutate(biological_rep_id = paste(subject, visit, skin_type)) %>%
+  group_by(biological_rep_id) %>% 
+  summarise(n = n()) %>% 
+  filter(n == 2) %>% 
+  pull(biological_rep_id)
+
+bioreplicates_t <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(biological_rep_id = paste(subject, visit, skin_type)) %>% 
+  filter(biological_rep_id %in% bioreplicates) %>% 
+  left_join(se[c("CCL17", "CCL18", "CCL20", "CCL22", "CCL26",
+                 "CXCL1", "CXCL10", "CXCL9", "FOXP3",
+                 "IL10", "IL22", "IL34", "IL37", "IL4R",
+                 "LORICRIN", "MMP12", "OSMR", "PI3",
+                 "S100A12", "S100A7", "STAT1"),] %>% as_tibble())
+
+
+replicate_g <-
+  bioreplicates_t %>% 
+    select(biological_rep_id, 
+           subject, visit, skin_type, feature, 
+           counts_scaled, replicate_ID) %>% 
+  ggplot(aes(x = replicate_ID, 
+             y = counts_scaled, 
+             group = biological_rep_id)) + 
+  geom_point(aes(color = skin_type)) + 
+  facet_grid(feature ~ skin_type, scales = "free") + 
+  geom_line(aes(color = skin_type), alpha = .5) + 
+  geom_boxplot(aes(group = replicate_ID, fill = skin_type), alpha = .5) + 
+  scale_color_manual(values = pca_color) + 
+  scale_fill_manual(values = pca_color) + 
+  scale_y_continuous(trans = "log2") +
+  xlab("replicate") +
+  theme(axis.title.y = element_blank())
+
+ggsave("data/supplementary/supplement_replicate.png", replicate_g,
+       height = 25, width = 8)
+```
+
+### correlation coefficient
+```{r}
+ad_sig <- 
+  readr::read_csv("data/supplementary/table_s2.csv",
+                  show_col_types = F) %>% 
+  pull(gene_name) %>% 
+  unique
+
+bioreplicates_sig_t <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(biological_rep_id = paste(subject, visit, skin_type)) %>% 
+  filter(biological_rep_id %in% bioreplicates) %>% 
+  left_join(se[ad_sig,] %>% as_tibble())
+```
+
+
+
 
 ## Gene set enrichment analysis
 ```{r dge result}
@@ -470,5 +560,29 @@ gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest(
 # gsea_res %>% saveRDS("data/gsea_res_FIVE_nocutoff.rds")
 ```
 
+## LINC 
+```{r}
+de_v1_full <- readr::read_rds("data/de_v1_full.rds")
+
+de_v1_full_t <-
+  de_v1_full %>% map2_dfr(names(de_v1_full),
+  function(x1,x2){
+    x1 <- x1 %>% mutate(contrast = x2)
+    }) %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1)
+
+LINC <- 
+  de_v1_full_t %>% filter(gene_name %>% str_detect("LINC"))
+
+LINC %>% write.csv("data/LINC.txt")
+
+
+  de_v1_full_t$gene_name %>% grep("LINC", . , value = T) %>% 
+  unique()
+
+l_g <- de_v1_full_t$gene_name %>% unique %>% length
+l_linc <- length(LINC)
+l_linc / l_g 
+```
 
 

@@ -307,10 +307,6 @@ top_linc_boxplot <-
 linc_vp_P / top_linc_boxplot
 ```
 
-
-
-
-
 ```{r disease severity}
 top_scorad_g <- vp_core_t %>% slice_max(scorad, n = 10) %>% pull(gene_name)
 

@@ -1049,12 +1049,81 @@ DGE_space <-
     res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
     res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
   )
-# save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 ```
 
-### Table S4
+### Table S5
+```{r output table s5, eval=FALSE}
+DGE_space_filter <- 
+  DGE_space %>% select(-se_exp, -design_f, -deseq) %>% 
+  unnest(cols=res_shrink) %>% 
+  filter(padj < .05, abs(log2FoldChange)>1)
+
+readr::write_csv(DGE_space_filter, "data/supplementary/table_s5_dge_space.csv")
+```
+
 
 ## Figure 4c
+```{r}
+
+se_krtap <- 
+  se[c("KRTAP5-8",
+       "KRTAP5-3",
+       "KRTAP10-4",
+       "KRTAP5-11",
+       "KRTAP5-7",
+       "KRTAP5-10"),]
+
+KRTAP_filt_d <- 
+  se_krtap %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
+
+sample_site_color <- 
+  colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Set3")
+names(color) <- sample_site_color
+
+heatmap_krtap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_krtap) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Anatomic region` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Anatomic region` = list(nrow = 2,
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 16))
+                                   ))
+# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
+                                               
+heatmap_krtap <- ComplexHeatmap::Heatmap(KRTAP_filt_d,
+                                         name = "gene expression",
+                                         column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(KRTAP_filt_d)[1])),
+                        top_annotation = heatmap_krtap_annotation,
+                        heatmap_legend_param = list(
+                          # title_gp = gpar(fontsize = 14),
+                          # labels_gp = gpar(fontsize = 12)
+                          ))
+
+draw(heatmap_krtap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+```
+
+```{r output figure 4c}
+png("data/supplementary/figure_4c", width = 480 * 1.5, height = 480 * 1.5)
+draw(heatmap_krtap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
 
 
 ## Cell deconvolution (Figure S4, Table 1)
@@ -1822,73 +1891,6 @@ vp_all <-
     )
 # variancePartition::plotVarPart(vp_all)
 ```
-
-
-## Hair
-```{r generate heatmap for krtap, cache=TRUE}
-se_krtap <- 
-  readr::read_rds("data/se_krtap.rds") %>% 
-  mutate(skin_type = skin_type %>% as.character(),
-         skin_type = ifelse(skin_type == "NN", "HC", skin_type))
-
-
-
-KRTAP_filt_d <- 
-  se_krtap %>% assay(2) %>% log1p() %>% t() %>% scale() %>% t()
-sample_site_color <- 
-  colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
-color <- RColorBrewer::brewer.pal(length(sample_site_color), "Set3")
-names(color) <- sample_site_color
-
-heatmap_annotation <- 
-  HeatmapAnnotation(
-    `Tissue type` = colData(se_krtap) %>% as_tibble() %>% pull(skin_type), 
-    `Anatomic region` = colData(se_krtap) %>% as_tibble() %>% pull(biopsy_area),
-    col = list(`Tissue type` = pca_color,
-               `Anatomic region` = color),
-    # simple_anno_size = unit(1, "cm"),
-    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
-                                                        # grid_height = unit(2, "cm"), 
-                                                        # grid_width = unit(1, "cm"), 
-                                                        title_gp = gpar(fontsize = 16),
-                                                        labels_gp = gpar(fontsize = 16)),
-                                   `Anatomic region` = list(nrow = 2,
-                                                          # grid_height = unit(2, "cm"), 
-                                                          # grid_width = unit(1, "cm"), 
-                                                          title_gp = gpar(fontsize = 16),
-                                                          labels_gp = gpar(fontsize = 16))
-                                   ))
-# grid_height = unit(1, "cm"), grid_width = unit(5, "mm")
-                                               
-heatmap <- ComplexHeatmap::Heatmap(KRTAP_filt_d,
-                        name = "gene expression",
-                        column_dend_reorder = TRUE,
-                        # clustering_method_columns = "complete",
-                        show_column_names = FALSE,
-                        show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = min(12, 800 * 1.5 / dim(KRTAP_filt_d)[1])),
-                        top_annotation = heatmap_annotation,
-                        heatmap_legend_param = list(
-                          # title_gp = gpar(fontsize = 14),
-                          # labels_gp = gpar(fontsize = 12)
-                          ))
-
-draw(heatmap, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-
-png("figure/heatmap_KRTAP.png", width = 480 * 1.5, height = 480 * 1.5)
-draw(heatmap, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-dev.off()
-
-pdf("figure/heatmap_KRTAP.pdf", width = 8, height = 5)
-draw(heatmap, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-dev.off()
-
-ggsave("figure/hemap_hair.png", heatmap_hair)
-```
-
 
 ## Regulatory elements
 

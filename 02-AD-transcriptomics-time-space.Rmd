@@ -2,7 +2,7 @@
 
 ## Load packages and environment variable
 
-```{r load packages and environment variable, echo=FALSE, message=FALSE, warning=FALSE}
+```{r load packages, echo=FALSE, message=FALSE, warning=FALSE}
 pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
                tidybulk, tidySummarizedExperiment, 
                ComplexHeatmap, ggpubr,
@@ -13,6 +13,9 @@ knitr::opts_chunk$set(message = FALSE,
                       warning = FALSE, 
                       echo = FALSE, 
                       fig.align = 'center')
+```
+
+```{r environment variable}
 pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60")
 core_n <- future::availableCores()
 register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n / 2)))
@@ -197,9 +200,7 @@ se_KRTAP <- se_prifilt %>%
 ```{r KRTAP variance}
 KRTAP_hair <-
   se_KRTAP %>% 
-  filter(feature %>% str_detect("KRTAP")
-           # c(paste0("KRTAP5-", 1:11), "KRTAP10-4")
-         ) %>% 
+  filter(feature %>% str_detect("KRTAP")) %>% 
   group_by(feature) %>% 
   summarise(mean_expr = mean(counts), 
             sd_expr = sd(counts)) %>%   
@@ -215,7 +216,7 @@ readr::write_rds(se, "data/se.rds")
 readr::write_rds(se_KRTAP_filt, "data/se_krtap_all24.rds")
 ```
 
-## Baseline characteristics
+## Baseline characteristics (Table S1 and Figure 1a)
 
 ```{r baseline-statistics-table}
 extensive_meta <- 
@@ -326,7 +327,6 @@ fisher_test_d <-
     )
 
 
-  
 clinic_summary <- 
  baseline_data %>% select(-subject) %>% group_by(group) %>% 
   summarize(no_subject = n(),
@@ -403,12 +403,30 @@ knitr::kable(clinic_summary_t,
 
 clinic_summary_t_xlsx <- clinic_summary_t %>% as_tibble(rownames = " ")
 clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test."
-# openxlsx::write.xlsx(clinic_summary_t_xlsx, 
-#                      "data/supplementary/table_s1.xlsx", overwrite = T)
+
+```
+
+```{r output table S1}
+table_s1 <- extensive_meta %>% 
+  filter(visit == "01") %>% 
+  select(subject, gender, visit, visit_quarter, age, bmi, 
+         smoker, drinks_per_week, 
+         prick_test_result,
+         skin_type_fitzpatrick_scale,
+         age_onset, 
+         other_atopy, 
+         family_eczema, family_atopy, education,
+         animal, contains("scorad"), contains("easi")) %>% 
+  mutate(age = age %>% round(1),
+         bmi = bmi %>% round(2)) %>% 
+  arrange(subject, visit) %>% distinct()
+
+openxlsx::write.xlsx(table_s1,
+                     "data/supplementary/table_s1.xlsx")
 ```
 
 
-## Differential expressed genes: baseline
+## Differential expressed genes: baseline (Table S2)
 
 ```{r DGE-V1, cache=TRUE}
 # V1 LSvsNL --------------------
@@ -449,24 +467,576 @@ de_v1_c_s <-
 n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
 n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsHC") %>% pull(n_dys)
 n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsHC") %>% pull(n_dys)
-de_v1_c %>% readr::write_csv("data/de_v1_sig.csv")
 de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
                    de_v1_NLvsNN = de_v1_NLvsNN_result)
-# de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
 ```
 
-## Differential expressed genes: anotomic area
+```{r output table s2}
+de_v1_c %>% readr::write_csv("data/supplementary/table_s2.csv")
+```
+
+## Transcriptomic profile (Figure S1, Figure 1b, Figure 1c)
+
+### Figure S1a
+```{r fig-s1a-distance-Tissue type heterogenity, cache=TRUE, fig.cap="Cosine distance of three tissue types"}
+cosine_st <-
+    lapply(c("LS", "NL", "HC"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(cosine_st) <- c("LS", "NL", "HC")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type") %>% tibble
+
+cosine_df %>% 
+  ggpubr::ggdensity(x = "cos_dist", fill = "skin_type", 
+                    palette = pca_color, xlab = "Cosine similarity") %>% 
+  ggpubr::ggpar(legend.title = "tissue type")
+```
+
+### Figure S1b
+```{r fig-s1b-heatmap-top100}
+top100_g <- 
+  de_v1_c %>% 
+  mutate(absolute_lc = abs(log2FoldChange)) %>% 
+  slice_max(absolute_lc, n = 100) %>% pull(gene_name)
+
+se_heatmap_top100 <- se[top100_g,]
+
+heatmap_data_m_top100 <-
+  scale(assay(se_heatmap_top100, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+
+sample_site_color <- 
+  colData(se_heatmap_top100) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_heatmap_top100) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(se_heatmap_top100) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Anatomic region` = color),
+    # simple_anno_size = unit(1, "cm"),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        # grid_height = unit(2, "cm"), 
+                                                        # grid_width = unit(1, "cm"), 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Anatomic region` = list(nrow = 1,
+                                                          # grid_height = unit(2, "cm"), 
+                                                          # grid_width = unit(1, "cm"), 
+                                                          title_gp = gpar(fontsize = 16),
+                                                          labels_gp = gpar(fontsize = 16))
+                                   ))
+
+heatmap_top100 <- ComplexHeatmap::Heatmap(heatmap_data_m_top100,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_names = TRUE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = 6.5),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 16),
+                          labels_gp = gpar(fontsize = 14)
+                          ))
+
+draw(heatmap_top100, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+```
+
+```{r output fig s1b, eval=FALSE}
+png("data/supplementary/figure_s1b.png", width = 480*6, height = 480*6, res=300)
+draw(heatmap_top100, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
+
+### Figure 1b
+```{r figure 1b-pca}
+core_genes <- 
+  de_v1_c %>% 
+  filter(contrast == "LSvsNL") %>%
+  pull(gene_name)
+
+# dimension reduction
+PCA_core <- se[core_genes,] %>% reduce_dimensions(method = "PCA")
+PCA_core_d <- attr(PCA_core, "internals")$PCA
+```
+
+```{r figure 1b-pca-vis, eval=FALSE}
+pca3d::pca3d(PCA_core_d, group = PCA_core$skin_type, 
+             col = pca_color, radius = 1.5, 
+             shape = "s", 
+             show.plane = FALSE)
+
+# save figure
+rgl::snapshot3d("data/supplementary/figure_1b.png", fmt="png")
+```
+
+```{r figure 1b-pca-vis-show-vis, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
+knitr::include_graphics("data/supplementary/figure_1b.png")
+```
+
+### Figure 1c
+```{r figure 1c}
+se_heatmap <- se[core_genes,]
+heatmap_data_m <-
+  scale(assay(se_heatmap, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+sample_site_color <- 
+  colData(se_heatmap) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_heatmap) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(se_heatmap) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = pca_color,
+               `Anatomic region` = color),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Anatomic region` = list(nrow = 1,
+                                                            title_gp = gpar(fontsize = 16),
+                                                            labels_gp = gpar(fontsize = 16))
+                                   ))
+
+heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_names = FALSE,
+                        show_row_dend = FALSE,
+                        # row_names_gp = gpar(fontsize = min(10, 800 * 1.5 / dim(heatmap_data_m)[1])),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 16),
+                          labels_gp = gpar(fontsize = 14)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+```
+
+```{r output figure 1c, eval=FALSE}
+png("data/supplementary/figure_1c.png", width = 480*6, height = 480*6, res=300)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
+
+## Gene set enrichment analysis (Figure 2, Table S3)
+```{r dge result}
+gse107361 <- 
+  readr::read_rds("data/dge_gse107361.rds") %>% # adult vs children
+  mutate(dge_result = map(dge_result, unnest))
+gse120721 <- readr::read_rds("data/dge_gse120721.rds") # LSM
+gse121212 <- readr::read_rds("data/dge_gse121212.rds")
+ChronicvsAcute <- readr::read_rds("data/dge_AcutevsChronic.rds")
+
+dge_result <-
+  tibble(
+    project = c(rep("multi-omics",length(de_v1_full)), 
+                rep("gse121212",nrow(gse121212)),
+                rep("gse107361",nrow(gse107361)),
+                rep("gse120721",nrow(gse120721)),
+                rep("acute_chronic", nrow(ChronicvsAcute))),
+    contrast = c(de_v1_full %>% names %>% str_remove("de_v1_"), 
+                 gse121212$contrast, 
+                 gse107361$contrast,
+                 gse120721$contrast,
+                 ChronicvsAcute$contrast),
+    dge_result = c(de_v1_full, 
+                   gse121212$res_shrink,
+                   gse107361$dge_result,
+                   gse120721$dge_result,
+                   ChronicvsAcute$data))
+```
+
+```{r prepare gene set, cache=TRUE}
+# prepare gs --------------
+gs <- 
+  tibble(gs_name = c("CP:REACTOME", 
+                     # "CP:BIOCARTA", 
+                     # "CP:KEGG", 
+                     # "CP:PID", 
+                     # "CP:WIKIPATHWAYS", 
+                     # "MIR:MIRDB", 
+                     "TFT:GTRD", 
+                     "GO:BP", 
+                     "GO:MF")) %>% 
+  mutate(gs_list = map(gs_name, function(subcat){
+  gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
+                            subcategory = subcat) %>% 
+    group_by(gs_name) %>% tidyr::nest() %>% 
+    mutate(gene_id = purrr::map(data, ~ .x %>% pull(gene_symbol))) %>% select(-data)
+  gs_list <- gs_df$gene_id
+  names(gs_list) <- gs_df$gs_name
+  return(gs_list)
+}))
+```
+
+```{r fgsea, cache=TRUE}
+gsea_exp <- 
+  expand.grid(contrast = dge_result$contrast,
+              gs_name = gs$gs_name) %>% 
+  left_join(dge_result, by = "contrast") %>% 
+  left_join(gs, by = "gs_name") %>% 
+  mutate(rank = map2(dge_result, gs_name,
+                     function(dge_result, gs_name){
+                       p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
+                                                         "TFT:GTRD"),
+                                          1, # .05
+                                          1)
+                       log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
+                                                        "TFT:GTRD"),
+                                               0, # 1
+                                               0)
+                       dge_result %>% 
+                         mutate(rank = log2FoldChange) %>% 
+                         filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
+                         select(gene_name, rank) %>% deframe}),
+         gse_res = map2(rank, gs_list,
+                            function(rank, gs_list){
+                              gsa_stat <- fgsea::fgsea(pathways = gs_list, 
+                                                       stats    = rank,
+                                                       minSize  = 8,
+                                                       maxSize  = 500, 
+                                                       eps = 0,
+                                                       nPermSimple = 10000) %>% 
+                            as_tibble()
+}))
+
+gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
+# gsea_res %>% saveRDS("data/gsea_res_FIVE_nocutoff.rds")
+```
+
+```{r gsea split}
+gsea_res <- 
+  gsea_res %>% 
+  mutate(contrast = contrast %>% str_remove("de_v1_")) %>% 
+  filter(gs_name %in% c("CP:REACTOME", 
+                        # "MIR:MIRDB", 
+                        "TFT:GTRD", 
+                        "GO:BP", 
+                        "GO:MF"))
+
+# gene set regulatory
+gs_r <- 
+  gsea_res %>% 
+  filter(
+    (gs_name %in% c("TFT:GTRD") & padj < .05 & project == "multi-omics") | 
+    (pathway %>% str_detect("PID_P\\d{1,}")) & padj < .05 ) %>% pull(pathway) %>% unique()
+```
+
+### Table S3
+
+```{r appendix}
+gsea_res_ex_filt <- gsea_res %>% filter(padj < .05, !contrast %>% str_detect("PSO"))
+
+gsea_res_ex_n <- 
+  gsea_res_ex_filt %>% 
+  group_by(pathway) %>% 
+  summarise(n = n())
+
+gsea_res_ex_appendix_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  select(contrast, pathway, NES) %>% pivot_wider(names_from = contrast, values_from = NES) %>% 
+  left_join(gsea_res_ex_n, by = "pathway") %>% arrange(-n) %>% 
+  select(pathway, 
+         n,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721"))
+# saveRDS(gsea_res_ex_appendix_w, "data/gsea_appendix.rds")
+
+gsea_res_ex_filt_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  group_by(gs_name) %>% nest() %>% 
+  mutate(data = map(data, 
+                    ~ .x %>% 
+                      select(contrast, pathway, NES) %>% 
+                      pivot_wider(names_from = contrast, values_from = NES) %>% 
+                      left_join(gsea_res_ex_n, by = "pathway") %>% 
+                      arrange(-n) %>% 
+                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                                          pathway,
+                                          ".html")) %>% 
+  select(pathway,
+         n,
+         url,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721")) 
+  ))
+
+gsea_res_ex_filt_p_value_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  group_by(gs_name) %>% nest() %>% 
+  mutate(data = map(data, 
+                    ~ .x %>% 
+                      select(contrast, pathway, padj) %>% 
+                      pivot_wider(names_from = contrast, values_from = padj) %>% 
+                      left_join(gsea_res_ex_n, by = "pathway") %>% 
+                      arrange(-n) %>% 
+                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                                          pathway,
+                                          ".html")) %>% 
+  select(pathway,
+         n,
+         url,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721")) 
+  ))
+
+
+gsea_xlsx <- c(gsea_res_ex_filt_w$data,
+                  gsea_res_ex_filt_p_value_w$data)
+
+names(gsea_xlsx) <- 
+  c(gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_NES"),
+    gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_padj"))
+
+gsea_xlsx %>% openxlsx::write.xlsx("data/supplementary/table_s3_gsea_res.xlsx", overwrite = T)
+```
+
+### Figure 2
+```{r gsea-vis}
+# gene set ad related
+gs_ad <- gsea_res_ex_filt %>% filter(pathway %in% c("REACTOME_CHEMOKINE_RECEPTORS_BIND_CHEMOKINES",
+                                                    "REACTOME_INTERFERON_SIGNALING",
+                                                    "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
+                                                    "GOBP_INFLAMMATORY_RESPONSE",
+                                                    "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", # IL4&13
+                                                    "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING", # IL12
+                                                    "REACTOME_INTERLEUKIN_1_FAMILY_SIGNALING", # IL1
+                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
+                                                    "REACTOME_INTERLEUKIN_20_FAMILY_SIGNALING",
+                                                    # "REACTOME_INTERLEUKIN_17_SIGNALING",
+                                                    "GOBP_T_CELL_ACTIVATION",
+                                                    "GOBP_T_CELL_PROLIFERATION",
+                                                    "GOBP_KERATINOCYTE_DIFFERENTIATION",
+                                                    "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS",
+                                                    "GOBP_CHRONIC_INFLAMMATORY_RESPONSE",
+                                                    "GOBP_POSITIVE_REGULATION_OF_MACROPHAGE_ACTIVATION",
+                                                    "GOBP_EOSINOPHIL_MIGRATION",
+                                                    "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") & padj < .05
+                               # pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05
+                             ) %>% pull(pathway) %>% unique()
+
+gsea_res_filt <-
+  gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
+  group_by(pathway, gs_name) %>% nest() %>% 
+  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                      pathway,
+                      ".html"),
+         des = map_chr(url, 
+                   function(url){
+                     url %>% xml2::read_html() %>% 
+                       rvest::html_node(css = "tr:nth-child(3) td") %>%
+                       rvest::html_text()}),
+         des = ifelse(gs_name == "GO:BP", # add description
+                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
+                      des),
+         des = ifelse(gs_name %in% c("MIR:MIRDB", "TFT:GTRD"),
+                      pathway %>% str_replace("_TARGET_GENES", " target genes"),
+                      des)) %>% 
+  unnest() %>% 
+  mutate(contrast = case_when(
+           contrast == "AD-LSvsAD-NL" ~ "LSvsNL",
+           contrast == "AD-LSvsCO" ~ "LSvsHC",
+           contrast == "AD-NLvsCO" ~ "NLvsHC",
+           contrast == "LSvsNN" ~ "LSvsHC",
+           contrast == "NLvsNN" ~ "NLvsHC",
+           contrast == "Adult_LSvsAdult_NL" ~ "Adult_LSvsNL",
+           contrast == "Adult_NNvsChildren_NN" ~ "Adult_HCvsChildren_HC",
+           contrast == "Children_LSvsChildren_NL" ~ "Children_LSvsNL",
+           contrast == "LS/NL_derm" ~ "LSvsNL_dermis",
+           contrast == "LS/NL_epi" ~ "LSvsNL_epidermis",
+           contrast == "LS/NL_FT" ~ "LSvsNL_full tissue",
+           TRUE ~ contrast)) 
+
+
+gsea_ad_p <-
+  gsea_res_filt %>% filter(pathway %in% gs_ad, 
+                           !contrast %>% str_detect("PSO"),
+                           padj < .05,
+                           !contrast %in% c("Adult_LSvsAdult_NN",
+                                            "Adult_NLvsAdult_NN",
+                                            "Adult_NLvsAdult_NN",
+                                            "Children_NLvsChildren_NN",
+                                            "Children_LSvsChildren_NN",
+                                            "Adult_LSvsChildren_LS",
+                                            "Adult_NLvsChildren_NL",
+                                            "LS/NN_derm",
+                                            "LS/NN_epi",
+                                            "LS/NN_FT",
+                                            "NL/NN_derm",
+                                            "NL/NN_FT")) %>% 
+  mutate(
+    des = des %>% str_replace_all("interleukin|Interleukin", "IL"),
+    cat = case_when(
+    pathway %in% c("PID_IL23_PATHWAY",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                   "REACTOME_INTERLEUKIN_10_SIGNALING",
+                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
+                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
+                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
+    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
+                   "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS", "REACTOME_DEFENSINS",
+                   "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") ~ "skin barrier",
+    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                   "GOBP_INFLAMMATORY_RESPONSE",
+                   "GOBP_T_CELL_ACTIVATION",
+                   "GOBP_T_CELL_PROLIFERATION",
+                   "GOBP_CHRONIC_INFLAMMATORY_RESPONSE") ~ "immune response",
+    TRUE ~ "signal transduction")) %>% 
+  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
+  geom_point() +
+  scale_size_area(max_size = 8) + 
+  scale_color_gradient2(low="blue", mid = "white", high="red") +
+  theme_bw() +
+  facet_grid(cat~project, scales = "free", space = "free") +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 35, hjust = 1))
+
+gsea_ad_p
+```
+
+```{r output figure 2, eval=FALSE}
+ggsave("data/supplementary/figure_2.png", gsea_ad_p, width = 9.5, height = 7)
+```
+
+
+## Variance parition analysis (Figure 3, Table S4, Table S5)
+
+```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
+# transform data for linear modeling
+
+se_core <- se[core_genes, which(se$rna_quality %in% c("high"))]
+seExpr_core <- calcNormFactors(se_core)
+design_core <- model.matrix(~ skin_type, seExpr_core$samples)
+vobj_core <- voom(seExpr_core, design_core)
+
+# perform VP analysis
+vp_core <- variancePartition::fitExtractVarPartModel(
+    vobj_core,
+    ~ 
+      scorad + easi_total_score +
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area),
+    colData(se_core) %>% as_tibble()
+)
+# vp_core %>% saveRDS("vp_core.rds")
+vp_core_t <- 
+  vp_core %>% as_tibble(rownames = "gene_name")
+
+# vp_core_t %>% saveRDS("data/vp_core_t.rds")
+
+# plot 1 - violin
+vp_core_p <- vp_core
+names(vp_core_p)[1] <- "anatomic region"
+names(vp_core_p)[3] <- "tissue type (LS/NL/HC)"
+names(vp_core_p)[4] <- "individual"
+names(vp_core_p)[5] <- "quarter"
+names(vp_core_p)[6] <- "SCORAD"
+names(vp_core_p)[7] <- "EASI"
+names(vp_core_p)[8] <- "residual"
+source("R/plot.R")
+vpcore_violin <-
+  plotVarPart_internal(vp_core_p) + 
+  theme(plot.margin = margin(.5, .5, .5, 2, "cm")) +
+  ylab("Var(%) explained")
+
+# vp_core_p %>% 
+#   as_tibble(rownames = "gene_name") %>% 
+#   select(gene_name, `tissue type (LS/NL/HC)`, individual, SCORAD, EASI, quarter, `anatomic region`, gender, unexplained) %>% 
+#   write.csv("data/supplementary/table_s5.csv")
+
+# plot 2 - cytokine dot plot
+cytokine_vp <- 
+  vp_core_t %>% 
+  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
+  arrange(-skin_type) %>% 
+  pivot_longer(cols = !gene_name, names_to = "term") %>% 
+  filter(term == "skin_type", value > .05) %>% 
+  mutate(var_explained = round(value * 100, 2))
+cytokine_vp_P <- ggpubr::ggdotchart(
+  cytokine_vp, x = "gene_name", y = "var_explained",
+  color = "#FC4E07",
+  xlab = "",
+  sorting = "descending",
+  rotate = TRUE, 
+  add = "segments",
+  ggtheme = ggpubr::theme_pubr(),
+  dot.size = 4,
+  ylab = "Var% explained by atopic dermatitis tissue"
+)
+
+# plot 3 - top cytokine boxplot
+top_cytokine <-
+  cytokine_vp %>% filter(term == "skin_type") %>% 
+  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
+top_cytokine_boxplot <-
+  se[top_cytokine,] %>% as_tibble() %>% 
+  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", xlab = FALSE,
+            ylab = "counts", color = "skin_type", 
+            palette = pca_color, legend.title = "",
+            font.legend = c(14), nrow = 1, yscale = "log10")
+  # stat_compare_means()
+
+# consolidate 3 plots
+vp_core_p <- 
+  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P)
+vp_core_p
+```
+
+### Figure 3
+```{r output figure 3a, eval=FALSE}
+ggsave("data/supplementary/figure_3.png", vp_core_p, 
+       width = 12 * 1.2, height = 8 * 1.2, dpi = "retina")
+```
+
+### Table S4
+```{r output table s4, eval=FALSE}
+vp_core_t %>% arrange(-skin_type) %>% 
+  readr::write_csv("data/supplementary/table_s4.csv")
+```
+
+## Space effect - Differential expressed genes: anotomic area (Figure 4b, 4)
 ```{r DGE space, cache=TRUE, eval=FALSE}
 DGE_space <-
   tibble(
-    C1 = c("LS", "NN"),
-    C2 = c("NL", "NN")
+    C1 = c("LS", "HC"),
+    C2 = c("NL", "HC")
   ) %>% 
   mutate(
     contrast = paste0(C1, "vs", C2),
     se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
-    design_f = ifelse(C1 == "NN" & C2 == "NN", 
+    design_f = ifelse(C1 == "HC" & C2 == "HC", 
                       "~ subject + visit + biopsy_area", 
                       "~ subject + skin_type + visit + biopsy_area"),
     deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
@@ -477,8 +1047,133 @@ DGE_space <-
     res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
     res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
   )
-save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
+# save(DGE_space %>% select(contrast, res_shrink), "data/dge_space.rds")
 ```
+
+### Table S4
+
+## Figure 4c
+
+
+## Cell deconvolution (Table 1)
+
+## Figure 5a
+
+## Figure 5b
+
+## Figure 5c
+
+### Diversity measure
+```{r diversity measure}
+library(tabula)
+library(magrittr)
+
+shannon <- 
+  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
+  vegan::diversity()
+
+diversity <-
+  colData(se_scaled) %>% as_tibble() %>% 
+  select(BAM_ID, group, subject, visit, 
+         skin_type, replicate_ID, gender, 
+         scorad, scorad_objective, easi_total_score, 
+         date_visit, rna_quality, 
+         visit_quarter, biopsy_area) %>% 
+  mutate(shannon = shannon)
+
+diversity_LSvsNL_lmm <- 
+  lmer(shannon ~ 
+       skin_type + (1|subject) + biopsy_area, 
+       diversity %>% filter(skin_type %in% c("LS", "NL"))) %>% 
+  tidy() %>% 
+  filter(term %>% str_detect("skin_type"))
+
+diversity_LS_NLvsHC_lmm <- 
+  lmer(shannon ~ 
+       skin_type + (1|subject) + 
+         (1|visit_quarter) + biopsy_area, 
+       diversity) %>% 
+  tidy() %>% 
+  filter(term %>% str_detect("skin_type"))
+
+```
+
+```{r dominance and evenness}
+dominance <- 
+  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
+  as_count() %>% 
+  index_heterogeneity(method = "simpson")
+
+evenness <-
+  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
+  as_count() %>% 
+  index_evenness()
+
+similarity <-
+  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
+  as_count() %>% 
+  similarity(method = "bray")
+```
+
+### Correlation of Schwaan cells and SCORAD
+```{r}
+extensive_meta <- 
+  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv", show_col_types = F)
+
+ALT_scorad_t <- 
+  ALT %>% 
+  left_join(extensive_meta %>% 
+              select(BAM_ID, contains("scorad"), -scorad, -scorad_objective) %>% 
+              mutate(across(!BAM_ID, ~ as.numeric(.x))),
+            by = "BAM_ID") %>% 
+  filter(skin_type == c("LS"))  %>% 
+  column_to_rownames("BAM_ID")
+
+ALT_scorad_m <-
+  
+  
+cor(ALT_scorad_t)
+
+
+ALT_scorad_test <-
+  expand_grid(
+    cell_type = colnames(ALT_scorad_t)[2:11],
+    score_type = colnames(ALT_scorad_t) %>% grep("scorad", ., value=T)
+  ) %>% 
+  filter(cell_type != "Melanocytes") %>% 
+  mutate(test = map2(cell_type, score_type, 
+                    function(cell_type, score_type){
+    x = ALT_scorad_t %>% pull(!! cell_type)
+    #                   cor <-
+    #   cor(x = ALT_scorad_t$cell_type,
+    #       y = ALT_scorad_t$score_type,
+    #       use = "complete.obs", method = "spearman")
+    # return(cor)
+  }))
+
+ALT_itchy_t %>% 
+  ggplot(aes(scorad_lichenification, Neuron_and_Schwann_cells)) +
+  geom_point() + geom_smooth(method = "lm")
+
+cor(x = ALT_itchy_t$scorad.x, 
+    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
+    use = "complete.obs", method = "spearman")
+
+cor(x = ALT_itchy_t$scorad_pruritus_vas_0_10, 
+    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
+    use = "complete.obs", method = "spearman")
+
+cor(x = ALT_itchy_t$scorad_sleep_loss_vas_0_10, 
+    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
+    use = "complete.obs", method = "spearman")
+
+cor(x = ALT_itchy_t$scorad_lichenification, 
+    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
+    use = "complete.obs", method = "spearman")
+
+```
+
+
 
 ## Differential expressed genes: time
 
@@ -680,94 +1375,7 @@ bioreplicates_sig_t <-
   left_join(se[ad_sig,] %>% as_tibble())
 ```
 
-## Gene set enrichment analysis
-```{r dge result}
-de_v1_full <- readr::read_rds("data/de_v1_full.rds")
-gse107361 <- 
-  readr::read_rds("data/dge_gse107361.rds") %>% # adult vs children
-  mutate(dge_result = map(dge_result, unnest))
-  
-gse120721 <- readr::read_rds("data/dge_gse120721.rds") # LSM
-gse121212 <- readr::read_rds("data/dge_gse121212.rds")
-ChronicvsAcute <- readr::read_rds("data/dge_AcutevsChronic.rds")
 
-dge_result <-
-  tibble(
-    project = c(rep("multi-omics",length(de_v1_full)), 
-                rep("gse121212",nrow(gse121212)),
-                rep("gse107361",nrow(gse107361)),
-                rep("gse120721",nrow(gse120721)),
-                rep("acute_chronic", nrow(ChronicvsAcute))),
-    contrast = c(de_v1_full %>% names %>% str_remove("de_v1_"), 
-                 gse121212$contrast, 
-                 gse107361$contrast,
-                 gse120721$contrast,
-                 ChronicvsAcute$contrast),
-    dge_result = c(de_v1_full, 
-                   gse121212$res_shrink,
-                   gse107361$dge_result,
-                   gse120721$dge_result,
-                   ChronicvsAcute$data))
-```
-
-```{r prepare gene set, cache=TRUE}
-# prepare gs --------------
-gs <- 
-  tibble(gs_name = c("CP:BIOCARTA", 
-                     "CP:KEGG", 
-                     "CP:PID", 
-                     "CP:REACTOME", 
-                     "CP:WIKIPATHWAYS", 
-                     "MIR:MIRDB", 
-                     "TFT:GTRD", 
-                     "GO:BP", 
-                     "GO:MF")) %>% 
-  mutate(gs_list = map(gs_name, function(subcat){
-  gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
-                            subcategory = subcat) %>% 
-    group_by(gs_name) %>% tidyr::nest() %>% 
-    mutate(gene_id = purrr::map(data, ~ .x %>% pull(gene_symbol))) %>% select(-data)
-  gs_list <- gs_df$gene_id
-  names(gs_list) <- gs_df$gs_name
-  return(gs_list)
-}))
-```
-
-```{r fgsea, cache=TRUE}
-gsea_exp <- 
-  expand.grid(contrast = dge_result$contrast,
-              gs_name = gs$gs_name) %>% 
-  left_join(dge_result, by = "contrast") %>% 
-  left_join(gs, by = "gs_name") %>% 
-  mutate(rank = map2(dge_result, gs_name,
-                     function(dge_result, gs_name){
-                       p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
-                                                         "TFT:GTRD"),
-                                          1, # .05
-                                          1)
-                       log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
-                                                        "TFT:GTRD"),
-                                               0, # 1
-                                               0)
-                       dge_result %>% 
-                         mutate(rank = log2FoldChange) %>% 
-                         filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
-                         select(gene_name, rank) %>% deframe}),
-         gse_res = map2(rank, gs_list,
-                            function(rank, gs_list){
-                              gsa_stat <- fgsea::fgsea(pathways = gs_list, 
-                                                       stats    = rank,
-                                                       minSize  = 8,
-                                                       maxSize  = 500, 
-                                                       eps = 0,
-                                                       nPermSimple = 10000,
-                                                       BPPARAM = MulticoreParam(workers = core_n - 4)) %>% 
-                            as_tibble()
-}))
-
-gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
-# gsea_res %>% saveRDS("data/gsea_res_FIVE_nocutoff.rds")
-```
 
 ## microRNA
 ```{r}
@@ -1003,168 +1611,9 @@ register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n - 6)))
 
 ## Transcriptomic profile of atopic dermatitis (AD) signature
 
-### PCA
-
-```{r pca}
-# load data
-se <- readr::read_rds("data/se.rds")
-colData(se) <- 
-  DataFrame(
-  colData(se) %>% 
-    as.data.frame() %>% 
-    mutate(skin_type = as.character(skin_type),
-           skin_type = ifelse(skin_type == "NN", "HC", skin_type),
-           skin_type = forcats::fct_relevel(skin_type, c("HC", "NL", "LS")))
-  )
-
-core_genes <- 
-  readr::read_csv("data/de_v1_sig.csv", show_col_types = FALSE) %>% 
-  filter(contrast == "LSvsNL") %>%
-  pull(gene_name) %>% unique()
-
-# dimension reduction
-PCA_core <- se[core_genes,] %>% reduce_dimensions(method = "PCA")
-PCA_core_d <- attr(PCA_core, "internals")$PCA
-```
-
-```{r pca vis, eval=FALSE}
-pca3d::pca3d(PCA_core_d, group = PCA_core$skin_type, 
-             col = pca_color, radius = 1.5, 
-             shape = "s", 
-             show.plane = FALSE)
-
-# save figure
-# rgl::snapshot3d("figure/pca3d.png", fmt="png")
-# rgl::rgl.postscript("figure/pca3d.pdf", fmt="pdf")
-```
-
-```{r pca show vis, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
-knitr::include_graphics("figure/pca3d.png")
-```
-
-### Heatmap
 
 
-#### AD-sig
-```{r AD-sig, fig.cap = "Heatmap", fig.align='center', dpi = 300, fig.height=8}
-se_heatmap <- se
-se_heatmap <- se_heatmap[core_genes[core_genes %in% rownames(se_heatmap)],]
 
-heatmap_data <- 
-  se_heatmap 
-# %>% keep_variable(.abundance = counts_scale, top = 50)
-heatmap_data_m <-
-  scale(assay(heatmap_data, 2) %>% t() %>% log1p(), 
-        center = TRUE, scale = TRUE) %>% t()
-sample_site_color <- 
-  colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
-color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
-names(color) <- sample_site_color
-heatmap_annotation <- 
-  HeatmapAnnotation(
-    `Tissue type` = colData(heatmap_data) %>% as_tibble() %>% pull(skin_type), 
-    `Anatomic region` = colData(heatmap_data) %>% as_tibble() %>% pull(biopsy_area),
-    col = list(`Tissue type` = pca_color,
-               `Anatomic region` = color),
-    # simple_anno_size = unit(1, "cm"),
-    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
-                                                        # grid_height = unit(2, "cm"), 
-                                                        # grid_width = unit(1, "cm"), 
-                                                        title_gp = gpar(fontsize = 16),
-                                                        labels_gp = gpar(fontsize = 16)),
-                                   `Anatomic region` = list(nrow = 1,
-                                                          # grid_height = unit(2, "cm"), 
-                                                          # grid_width = unit(1, "cm"), 
-                                                          title_gp = gpar(fontsize = 16),
-                                                          labels_gp = gpar(fontsize = 16))
-                                   ))
-
-heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
-                        name = "gene expression",
-                        column_dend_reorder = TRUE,
-                        # clustering_method_columns = "complete",
-                        show_column_names = FALSE,
-                        show_row_names = FALSE,
-                        show_row_dend = FALSE,
-                        # row_names_gp = gpar(fontsize = min(10, 800 * 1.5 / dim(heatmap_data_m)[1])),
-                        top_annotation = heatmap_annotation,
-                        heatmap_legend_param = list(
-                          title_gp = gpar(fontsize = 16),
-                          labels_gp = gpar(fontsize = 14)
-                          ))
-
-draw(heatmap, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-
-# poster 480*8.1.5 480*10*1.5
-# png("figure/heatmap.png", width = 480*6, height = 480*6, res=300)
-# draw(heatmap, heatmap_legend_side = "right",
-#      annotation_legend_side = "top", merge_legend = FALSE)
-# dev.off()
-```
-
-#### Top-100
-```{r top100}
-se_heatmap_top100 <- se
-top100_g <- 
-  de_v1_c %>% 
-  mutate(absolute_lc = abs(log2FoldChange)) %>% 
-  slice_max(absolute_lc, n = 100) %>% pull(gene_name)
-
-se_heatmap_top100 <- se_heatmap_top100[top100_g,]
-
-heatmap_data_top100 <- 
-  se_heatmap_top100 
-# %>% keep_variable(.abundance = counts_scale, top = 50)
-heatmap_data_m_top100 <-
-  scale(assay(heatmap_data_top100, 2) %>% t() %>% log1p(), 
-        center = TRUE, scale = TRUE) %>% t()
-sample_site_color <- 
-  colData(heatmap_data_top100) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
-color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
-names(color) <- sample_site_color
-heatmap_annotation <- 
-  HeatmapAnnotation(
-    `Tissue type` = colData(heatmap_data_top100) %>% as_tibble() %>% pull(skin_type), 
-    `Anatomic region` = colData(heatmap_data_top100) %>% as_tibble() %>% pull(biopsy_area),
-    col = list(`Tissue type` = pca_color,
-               `Anatomic region` = color),
-    # simple_anno_size = unit(1, "cm"),
-    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
-                                                        # grid_height = unit(2, "cm"), 
-                                                        # grid_width = unit(1, "cm"), 
-                                                        title_gp = gpar(fontsize = 16),
-                                                        labels_gp = gpar(fontsize = 16)),
-                                   `Anatomic region` = list(nrow = 1,
-                                                          # grid_height = unit(2, "cm"), 
-                                                          # grid_width = unit(1, "cm"), 
-                                                          title_gp = gpar(fontsize = 16),
-                                                          labels_gp = gpar(fontsize = 16))
-                                   ))
-
-heatmap_top100 <- ComplexHeatmap::Heatmap(heatmap_data_m_top100,
-                        name = "gene expression",
-                        column_dend_reorder = TRUE,
-                        # clustering_method_columns = "complete",
-                        show_column_names = FALSE,
-                        show_row_names = TRUE,
-                        show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = 6.5),
-                        top_annotation = heatmap_annotation,
-                        heatmap_legend_param = list(
-                          title_gp = gpar(fontsize = 16),
-                          labels_gp = gpar(fontsize = 14)
-                          ))
-
-draw(heatmap_top100, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-
-png("figure/heatmap_top100.png", width = 480*6, height = 480*6, res=300)
-draw(heatmap_top100, heatmap_legend_side = "right",
-     annotation_legend_side = "top", merge_legend = FALSE)
-dev.off()
-
-```
 
 
 
@@ -1205,205 +1654,6 @@ lapply(cosine_st, median)
 ```
 
 
-
-## Gene set enrichment analysis
-```{r gsea split}
-gsea_res <- 
-  readr::read_rds("data/gsea_res_FIVE_nocutoff.rds") %>% 
-  mutate(contrast = contrast %>% str_remove("de_v1_")) %>% 
-  filter(gs_name %in% c("CP:REACTOME", "MIR:MIRDB", "TFT:GTRD", "GO:BP", "GO:MF"))
-
-# gene set regulatory
-gs_r <- 
-  gsea_res %>% 
-  filter(
-    (gs_name %in% c("TFT:GTRD") & padj < .05 & project == "multi-omics") | 
-    (pathway %>% str_detect("PID_P\\d{1,}")) & padj < .05 ) %>% pull(pathway) %>% unique()
-```
-
-```{r appendix}
-gsea_res_ex_filt <- gsea_res %>% filter(padj < .05, 
-                                        !contrast %>% str_detect("PSO"))
-
-gsea_res_ex_n <- 
-  gsea_res_ex_filt %>% 
-  group_by(pathway) %>% 
-  summarise(n = n())
-
-gsea_res_ex_appendix_w <-
-  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
-  select(contrast, pathway, NES) %>% pivot_wider(names_from = contrast, values_from = NES) %>% 
-  left_join(gsea_res_ex_n, by = "pathway") %>% arrange(-n) %>% 
-  select(pathway, 
-         n,
-         contains("multi-omics"), 
-         contains("gse121212"), 
-         contains("acute_chronic"),
-         contains("gse107361"), 
-         contains("gse120721"))
-# saveRDS(gsea_res_ex_appendix_w, "data/gsea_appendix.rds")
-
-gsea_res_ex_filt_w <-
-  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
-  group_by(gs_name) %>% nest() %>% 
-  mutate(data = map(data, 
-                    ~ .x %>% 
-                      select(contrast, pathway, NES) %>% 
-                      pivot_wider(names_from = contrast, values_from = NES) %>% 
-                      left_join(gsea_res_ex_n, by = "pathway") %>% 
-                      arrange(-n) %>% 
-                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
-                                          pathway,
-                                          ".html")) %>% 
-  select(pathway,
-         n,
-         url,
-         contains("multi-omics"), 
-         contains("gse121212"), 
-         contains("acute_chronic"),
-         contains("gse107361"), 
-         contains("gse120721")) 
-  ))
-
-gsea_res_ex_filt_p_value_w <-
-  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
-  group_by(gs_name) %>% nest() %>% 
-  mutate(data = map(data, 
-                    ~ .x %>% 
-                      select(contrast, pathway, padj) %>% 
-                      pivot_wider(names_from = contrast, values_from = padj) %>% 
-                      left_join(gsea_res_ex_n, by = "pathway") %>% 
-                      arrange(-n) %>% 
-                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
-                                          pathway,
-                                          ".html")) %>% 
-  select(pathway,
-         n,
-         url,
-         contains("multi-omics"), 
-         contains("gse121212"), 
-         contains("acute_chronic"),
-         contains("gse107361"), 
-         contains("gse120721")) 
-  ))
-
-
-gsea_xlsx <- c(gsea_res_ex_filt_w$data,
-                  gsea_res_ex_filt_p_value_w$data)
-
-names(gsea_xlsx) <- 
-  c(gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_NES"),
-    gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_padj"))
-
-# gsea_xlsx %>% openxlsx::write.xlsx("data/gsea_res.xlsx", overwrite = T)
-```
-
-```{r gsea-vis}
-# gene set ad related
-gs_ad <- gsea_res_ex_filt %>% filter(pathway %in% c("REACTOME_CHEMOKINE_RECEPTORS_BIND_CHEMOKINES",
-                                                    "REACTOME_INTERFERON_SIGNALING",
-                                                    "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
-                                                    "GOBP_INFLAMMATORY_RESPONSE",
-                                                    "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", # IL4&13
-                                                    "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING", # IL12
-                                                    "REACTOME_INTERLEUKIN_1_FAMILY_SIGNALING", # IL1
-                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
-                                                    "REACTOME_INTERLEUKIN_20_FAMILY_SIGNALING",
-                                                    # "REACTOME_INTERLEUKIN_17_SIGNALING",
-                                                    "GOBP_T_CELL_ACTIVATION",
-                                                    "GOBP_T_CELL_PROLIFERATION",
-                                                    "GOBP_KERATINOCYTE_DIFFERENTIATION",
-                                                    "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS",
-                                                    "GOBP_CHRONIC_INFLAMMATORY_RESPONSE",
-                                                    "GOBP_POSITIVE_REGULATION_OF_MACROPHAGE_ACTIVATION",
-                                                    "GOBP_EOSINOPHIL_MIGRATION",
-                                                    "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") & padj < .05
-                               # pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05
-                             ) %>% pull(pathway) %>% unique()
-
-gsea_res_filt <-
-  gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
-  group_by(pathway, gs_name) %>% nest() %>% 
-  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
-                      pathway,
-                      ".html"),
-         des = map_chr(url, 
-                   function(url){
-                     url %>% xml2::read_html() %>% 
-                       rvest::html_node(css = "tr:nth-child(3) td") %>%
-                       rvest::html_text()}),
-         des = ifelse(gs_name == "GO:BP", # add description
-                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
-                      des),
-         des = ifelse(gs_name %in% c("MIR:MIRDB", "TFT:GTRD"),
-                      pathway %>% str_replace("_TARGET_GENES", " target genes"),
-                      des)) %>% 
-  unnest() %>% 
-  mutate(contrast = case_when(
-           contrast == "AD-LSvsAD-NL" ~ "LSvsNL",
-           contrast == "AD-LSvsCO" ~ "LSvsHC",
-           contrast == "AD-NLvsCO" ~ "NLvsHC",
-           contrast == "LSvsNN" ~ "LSvsHC",
-           contrast == "NLvsNN" ~ "NLvsHC",
-           contrast == "Adult_LSvsAdult_NL" ~ "Adult_LSvsNL",
-           contrast == "Adult_NNvsChildren_NN" ~ "Adult_HCvsChildren_HC",
-           contrast == "Children_LSvsChildren_NL" ~ "Children_LSvsNL",
-           contrast == "LS/NL_derm" ~ "LSvsNL_dermis",
-           contrast == "LS/NL_epi" ~ "LSvsNL_epidermis",
-           contrast == "LS/NL_FT" ~ "LSvsNL_full tissue",
-           TRUE ~ contrast)) 
-
-
-gsea_ad_p <-
-  gsea_res_filt %>% filter(pathway %in% gs_ad, 
-                           !contrast %>% str_detect("PSO"),
-                           padj < .05,
-                           !contrast %in% c("Adult_LSvsAdult_NN",
-                                            "Adult_NLvsAdult_NN",
-                                            "Adult_NLvsAdult_NN",
-                                            "Children_NLvsChildren_NN",
-                                            "Children_LSvsChildren_NN",
-                                            "Adult_LSvsChildren_LS",
-                                            "Adult_NLvsChildren_NL",
-                                            "LS/NN_derm",
-                                            "LS/NN_epi",
-                                            "LS/NN_FT",
-                                            "NL/NN_derm",
-                                            "NL/NN_FT")) %>% 
-  mutate(
-    des = des %>% str_replace_all("interleukin|Interleukin", "IL"),
-    cat = case_when(
-    pathway %in% c("PID_IL23_PATHWAY",
-                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-                   "REACTOME_INTERLEUKIN_10_SIGNALING",
-                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
-                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
-                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
-                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
-    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
-                   "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS", "REACTOME_DEFENSINS",
-                   "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") ~ "skin barrier",
-    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
-                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-                   "GOBP_INFLAMMATORY_RESPONSE",
-                   "GOBP_T_CELL_ACTIVATION",
-                   "GOBP_T_CELL_PROLIFERATION",
-                   "GOBP_CHRONIC_INFLAMMATORY_RESPONSE") ~ "immune response",
-    TRUE ~ "signal transduction")) %>% 
-  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
-  geom_point() +
-  scale_size_area(max_size = 8) + 
-  scale_color_gradient2(low="blue", mid = "white", high="red") +
-  theme_bw() +
-  facet_grid(cat~project, scales = "free", space = "free") +
-  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 35, hjust = 1))
-
-gsea_ad_p
-
-ggsave("figure/gsea_ad.png", gsea_ad_p, width = 9.5, height = 7)
-```
-
 ## Variance analysis
 
 ```{r vpall, cache=TRUE, eval=FALSE}
@@ -1426,95 +1676,6 @@ vp_all <-
 # variancePartition::plotVarPart(vp_all)
 ```
 
-```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
-# transform data for linear modeling
-# se <- readr::read_rds("data/se.rds")
-de_v1_c <- readr::read_csv("data/de_v1_sig.csv")
-se_core <- se[names(se) %in% (de_v1_c %>% pull(gene_name) %>% unique),
-              which(se$rna_quality %in% c("high"))]
-seExpr_core <- calcNormFactors(se_core)
-design_core <- model.matrix(~ skin_type, seExpr_core$samples)
-vobj_core <- voom(seExpr_core, design_core)
-
-
-# perform VP analysis
-vp_core <- variancePartition::fitExtractVarPartModel(
-    vobj_core,
-    ~ 
-      scorad + easi_total_score +
-      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
-      (1|gender) + (1|biopsy_area),
-    colData(se_core) %>% as_tibble()
-)
-# vp_core %>% saveRDS("vp_core.rds")
-vp_core_t <- 
-  vp_core %>% as_tibble(rownames = "gene_name")
-
-# vp_core_t %>% saveRDS("data/vp_core_t.rds")
-
-# plot 1 - violin
-vp_core_p <- vp_core
-names(vp_core_p)[1] <- "anatomic region"
-names(vp_core_p)[3] <- "tissue type (LS/NL/HC)"
-names(vp_core_p)[4] <- "individual"
-names(vp_core_p)[5] <- "quarter"
-names(vp_core_p)[6] <- "SCORAD"
-names(vp_core_p)[7] <- "EASI"
-names(vp_core_p)[8] <- "residual"
-source("R/plot.R")
-vpcore_violin <-
-  plotVarPart_internal(vp_core_p) + 
-  theme(plot.margin = margin(.5, .5, .5, 2, "cm")) +
-  ylab("Var(%) explained")
-
-# vp_core_p %>% 
-#   as_tibble(rownames = "gene_name") %>% 
-#   select(gene_name, `tissue type (LS/NL/HC)`, individual, SCORAD, EASI, quarter, `anatomic region`, gender, unexplained) %>% 
-#   write.csv("data/supplementary/table_s5.csv")
-
-# plot 2 - cytokine dot plot
-cytokine_vp <- 
-  vp_core_t %>% 
-  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
-  arrange(-skin_type) %>% 
-  pivot_longer(cols = !gene_name, names_to = "term") %>% 
-  filter(term == "skin_type") %>% 
-  mutate(var_explained = round(value * 100, 2))
-cytokine_vp_P <- ggpubr::ggdotchart(
-  cytokine_vp, x = "gene_name", y = "var_explained",
-  color = "#FC4E07",
-  xlab = "",
-  sorting = "descending",
-  rotate = TRUE, 
-  add = "segments",
-  ggtheme = ggpubr::theme_pubr(),
-  dot.size = 4,
-  ylab = "Var% explained by atopic dermatitis tissue"
-)
-
-# plot 3 - top cytokine boxplot
-top_cytokine <-
-  cytokine_vp %>% filter(term == "skin_type") %>% 
-  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
-top_cytokine_boxplot <-
-  se[top_cytokine,] %>% as_tibble() %>% 
-  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
-  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
-            facet.by = "feature", xlab = FALSE,
-            ylab = "counts", color = "skin_type", 
-            palette = pca_color, legend.title = "",
-            font.legend = c(14), nrow = 1, yscale = "log10")
-  # stat_compare_means()
-
-# consolidate 3 plots
-vp_core_p <- 
-  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P)
-vp_core_p
-
-# save the plot (Not execuate)
-ggsave("figure/vp_core.png", vp_core_p, 
-       width = 12 * 1.2, height = 8 * 1.2, dpi = "retina")
-```
 
 ## Hair
 ```{r generate heatmap for krtap, cache=TRUE}
@@ -1948,116 +2109,7 @@ ALT_estimate %>%
   write_csv("data/_TMP/cell_deconvolution_estimate.csv")
 ```
 
-### Diversity measure
-```{r diversity measure}
-library(tabula)
-library(folio) # Datasets
-library(magrittr)
 
-shannon <- 
-  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
-  vegan::diversity()
-
-diversity <-
-  colData(se_scaled) %>% as_tibble() %>% 
-  select(BAM_ID, group, subject, visit, 
-         skin_type, replicate_ID, gender, 
-         scorad, scorad_objective, easi_total_score, 
-         date_visit, rna_quality, 
-         visit_quarter, biopsy_area) %>% 
-  mutate(shannon = shannon)
-
-diversity_LSvsNL_lmm <- 
-  lmer(shannon ~ 
-       skin_type + (1|subject) + biopsy_area, 
-       diversity %>% filter(skin_type %in% c("LS", "NL"))) %>% 
-  tidy() %>% 
-  filter(term %>% str_detect("skin_type"))
-
-diversity_LS_NLvsHC_lmm <- 
-  lmer(shannon ~ 
-       skin_type + (1|subject) + 
-         (1|visit_quarter) + biopsy_area, 
-       diversity) %>% 
-  tidy() %>% 
-  filter(term %>% str_detect("skin_type"))
-
-```
-
-```{r dominance and evenness}
-dominance <- 
-  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
-  as_count() %>% 
-  index_heterogeneity(method = "simpson")
-
-evenness <-
-  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
-  as_count() %>% 
-  index_evenness()
-
-similarity <-
-  (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
-  as_count() %>% 
-  similarity(method = "bray")
-```
-
-### Correlation of Schwaan cells and EASI itchy
-```{r}
-extensive_meta <- 
-  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv", show_col_types = F)
-
-ALT_scorad_t <- 
-  ALT %>% 
-  left_join(extensive_meta %>% 
-              select(BAM_ID, contains("scorad"), -scorad, -scorad_objective) %>% 
-              mutate(across(!BAM_ID, ~ as.numeric(.x))),
-            by = "BAM_ID") %>% 
-  filter(skin_type == c("LS"))  %>% 
-  column_to_rownames("BAM_ID")
-
-ALT_scorad_m <-
-  
-  
-cor(ALT_scorad_t)
-
-
-ALT_scorad_test <-
-  expand_grid(
-    cell_type = colnames(ALT_scorad_t)[2:11],
-    score_type = colnames(ALT_scorad_t) %>% grep("scorad", ., value=T)
-  ) %>% 
-  filter(cell_type != "Melanocytes") %>% 
-  mutate(test = map2(cell_type, score_type, 
-                    function(cell_type, score_type){
-    x = ALT_scorad_t %>% pull(!! cell_type)
-    #                   cor <-
-    #   cor(x = ALT_scorad_t$cell_type,
-    #       y = ALT_scorad_t$score_type,
-    #       use = "complete.obs", method = "spearman")
-    # return(cor)
-  }))
-
-ALT_itchy_t %>% 
-  ggplot(aes(scorad_lichenification, Neuron_and_Schwann_cells)) +
-  geom_point() + geom_smooth(method = "lm")
-
-cor(x = ALT_itchy_t$scorad.x, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_pruritus_vas_0_10, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_sleep_loss_vas_0_10, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_lichenification, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-```
 
 
 
@@ -2111,26 +2163,6 @@ cor(x = ALT_itchy_t$scorad_lichenification,
 <!-- ``` -->
 
 
-# Skin Transcriptome in Time and Space
-
-## Abstract
-
-## Introduction
-
-## Results
-
-```{r load package, echo=FALSE, message=FALSE, warning=FALSE}
-pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr, 
-               tidybulk, tidySummarizedExperiment, 
-               ComplexHeatmap, ggpubr,
-               BiocParallel, Biobase, variancePartition,
-               DESeq2, limma, edgeR, MuSiC, convert, 
-               patchwork)
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
-pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "HC" = "#91cf60")
-core_n <- future::availableCores()
-register(MulticoreParam(ifelse(core_n <= 8, core_n - 2, core_n -6)))
-```
 
 ```{r load data}
 clinical_records <- 
@@ -2479,34 +2511,6 @@ datatable(vp_core,
 ```
 
 # Transcriptome appendix
-```{r setup-transcriptome-appendix, include=FALSE}
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
-library(dplyr)
-library(tibble)
-library(tidyr)
-library(SummarizedExperiment)
-library(DT)
-library(stringr)
-library(ggpubr)
-pca_color <- c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60")
-```
-
-
-## Table S2 - individual data table
-```{r individual-data-table}
-individual_data <- 
-  baseline_data %>% arrange(subject) %>% select(-ige_200_h) %>% 
-  mutate(age = age %>% round,
-         bmi = bmi %>% round(1))
-colnames(individual_data)[3] <- "BMI"
-colnames(individual_data)[4] <- "blood_IgE"
-colnames(individual_data)[7] <- "EASI"
-colnames(individual_data)[8] <- "SCORAD"
-colnames(individual_data)[9] <- "oSCORAD"
-knitr::kable(individual_data, caption = "Baseline statistics of individual subjects")
-openxlsx::write.xlsx(individual_data, 
-                     "data/supplementary/table_s2.xlsx", overwrite = T)
-```
 
 ## Space
 ```{r load dge object}
@@ -2514,30 +2518,6 @@ dge_space <- readr::read_rds("data/dge_space.rds")
 dge_space_filt <- 
   dge_space %>% unnest() %>% filter(padj < .05, abs(log2FoldChange) > 1)
 readr::write_csv(dge_space_filt, "data/supplementary/dge_space.csv")
-```
-
-
-## Tissue type heterogenity
-```{r distance, cache=TRUE, fig.cap="Cosine distance of three tissue types"}
-se <- readr::read_rds("data/se.rds")
-group_color <- c("LS" = "#eb2d0c", "NL" = "#eb740c", "NN" = "#91cf60")
-cosine_st <-
-    lapply(c("LS", "NL", "NN"), function(x){
-    se %>% 
-      subset(select = skin_type == x) %>% 
-      assay(2) %>% 
-      coop::cosine() %>% 
-      as.numeric()})
-
-names(cosine_st) <- c("LS", "NL", "NN")
-
-cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
-                       .id = "skin_type") %>% tibble
-
-cosine_df %>% 
-  ggpubr::ggdensity(x = "cos_dist", fill = "skin_type", 
-                    palette = group_color, xlab = "Cosine similarity") %>% 
-  ggpubr::ggpar(legend.title = "tissue type")
 ```
 
 ## Visit 1: differentially expressed genes {#ad-dge-v1}

@@ -8,7 +8,9 @@ pacman::p_load(tibble, dplyr, tidyr, readr, stringr, ggplot2, purrr,
                ComplexHeatmap, ggpubr,
                BiocParallel, Biobase, variancePartition,
                DESeq2, limma, edgeR, MuSiC, convert, 
-               patchwork)
+               patchwork, lme4, lmerTest, broom.mixed,
+               vegan, tabula)
+
 knitr::opts_chunk$set(message = FALSE, 
                       warning = FALSE, 
                       echo = FALSE, 
@@ -1055,19 +1057,176 @@ DGE_space <-
 ## Figure 4c
 
 
-## Cell deconvolution (Table 1)
+## Cell deconvolution (Figure S4, Table 1)
 
-## Figure 5a
+```{r MuSic, cache=TRUE}
+# Construct ExpressionSet for bulk RNA-seq
+se_scaled <- se
+assay(se_scaled) <- NULL
+multiomics <- as(se_scaled, "ExpressionSet")
 
-## Figure 5b
+# Construct ExpressionSet for scRNA-seq
+emma_guttman <- readRDS("data/ext/emma_scrna_ExpressionSet.rds")
+multiomics_music <- music_prop(bulk.eset = multiomics, 
+                               sc.eset = emma_guttman,
+                               clusters = "cell_type", 
+                               samples = "sample_name")
+multiomics_results <-
+  data.matrix(multiomics_music$Est.prop.weighted) %>% 
+  as.data.frame() %>% rownames_to_column("BAM_ID") %>% 
+  pivot_longer(!BAM_ID, names_to = "cell_type", values_to = "prop") %>% 
+  left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
 
-## Figure 5c
+cell_type_rank <- 
+  multiomics_results %>% group_by(cell_type) %>% 
+  summarize(mean_prop = mean(prop)) %>% arrange(-mean_prop) %>% pull(cell_type)
+
+exclude_low_KRT <-
+  multiomics_results %>% 
+  filter(cell_type == "Keratinocytes", prop < .11) %>% pull(BAM_ID)
+
+multiomics_results <-
+  multiomics_results %>% filter(!BAM_ID %in% exclude_low_KRT) %>% 
+  mutate(cell_type = forcats::fct_relevel(cell_type, cell_type_rank),
+         prop = prop * 100)
+
+multiomics_results %>% 
+  group_by(skin_type, cell_type) %>% 
+  summarise(mean = mean(prop)) %>% 
+  ggbarplot("skin_type", "mean", fill = "cell_type",
+            xlab = "Tissue type", ylab = "Proportion(%)", palette = "npg") %>% 
+    ggpar(legend = "bottom", 
+        legend.title = "Cell type",
+        font.legend = 7, 
+        font.tickslab = 6)
+```
+
+```{r output figure s4, eval=FALSE}
+multiomics_results_sample <- 
+  multiomics_results %>%
+  mutate(plot_name = paste(subject, visit, skin_type, replicate_ID, sep = "_"))
+
+multiomics_results_sample_count <-
+  multiomics_results_sample$plot_name %>% table
+
+multiomics_results_sample <-
+  multiomics_results_sample %>% 
+  filter(plot_name %in% names(which(multiomics_results_sample_count == 10)))
+
+multiomics_results_vis_sample <- 
+  multiomics_results_sample %>%  # filter(subject %in% c("AD_16", "CO_33")) %>% 
+  arrange(plot_name) %>% 
+  ggbarplot(x = "plot_name", y = "prop", fill = "cell_type", 
+            xlab = "Sample", ylab = "Proportion(%)", palette = "npg") %>% 
+  facet(facet.by = "subject", scales = "free") %>% 
+  ggpar(xtickslab.rt = 90, font.tickslab = 6)
+
+pdf("data/supplementary/figure_s4.pdf", height = 16.5 * 1.5, width = 11.7)
+multiomics_results_vis_sample
+dev.off()
+```
+
+### Statistical testing mean change (Table 1)
+
+#### ALT
+```{r ALT}
+MuSiC_matrix <-
+  data.matrix(multiomics_music$Est.prop.weighted)
+ALT <- # addictive log-ratio transformation
+  MuSiC_matrix %>% 
+  as_tibble(rownames = "BAM_ID") %>% 
+  # filter(Keratinocytes > .11) %>% 
+  mutate(across(!BAM_ID, ~ ifelse(.x == 0, NA, .x)),
+         across(!c("BAM_ID", "Melanocytes"), 
+                ~ log2(.x / Melanocytes)))  %>% 
+  left_join(
+    colData(se_scaled) %>% as_tibble() %>% 
+      select(BAM_ID, group, subject, visit, 
+             skin_type, replicate_ID, gender, 
+             scorad, scorad_objective, easi_total_score, 
+             date_visit, rna_quality, visit_quarter, biopsy_area)) %>% 
+  rename(T_cells = `T-cells`)
+lmm_test <- 
+  function(index, data, cell_type_n){
+    f <- paste(cell_type_n[index], "~", "skin_type", "+",
+               "(1|subject)", "+", "visit_quarter", "+",
+               "biopsy_area")
+    lmm_nonpaired <-
+      lmer(f %>% as.formula(), data) %>% tidy() %>%
+      filter(str_detect(term, "skin_type")) %>%
+      mutate(term = paste(str_remove(term, "skin_type"), "vs HC"))
+         
+    lmm_paired <-
+      lmer(f %>% as.formula(), 
+           data %>%
+             filter(skin_type %in% c("LS", "NL"))) %>%
+      tidy()  %>%
+      filter(str_detect(term, "skin_type")) %>%
+      mutate(term = paste(str_remove(term, "skin_type"), "vs NL"))
+
+    lmm_t <- bind_rows(lmm_nonpaired,
+                       lmm_paired) %>%
+      mutate(cell_type = cell_type_n[index])
+  }
+
+
+ALT_m <- 
+  lapply(seq_along(c(colnames(ALT)[2:4], colnames(ALT)[6:11])), 
+         lmm_test, data = ALT, 
+         cell_type_n = c(colnames(ALT)[2:4], colnames(ALT)[6:11]))
+
+ALT_p <- 
+  ALT_m %>% map_dfr(~ .x) %>% 
+  select(term, p.value, cell_type) %>% 
+  mutate(p.value = p.value %>% round(2)) %>% 
+  pivot_wider(names_from = term, values_from = p.value)
+
+ALT_estimate <-
+  ALT_m %>% map_dfr(~ .x) %>% 
+  select(term, estimate, cell_type) %>% 
+  mutate(estimate = estimate %>% round(2)) %>% 
+  pivot_wider(names_from = term, values_from = estimate)
+```
+
+#### CLT
+```{r statisticcs}
+C_v <- MuSiC_matrix %>% colMeans() # column mean vector
+C_m <- # column mean matrix
+  rep(C_v, nrow(MuSiC_matrix)) %>% matrix(nrow = nrow(MuSiC_matrix), byrow = T) 
+N_m <- # normalized matrix
+  log2(data.matrix(multiomics_music$Est.prop.weighted) / C_m)
+
+CLT <- # centred log-ratio transformation
+  N_m %>% 
+  as_tibble(rownames = "BAM_ID") %>% 
+  mutate(across(!BAM_ID, ~ ifelse(.x == -Inf, NA, .x)))  %>% 
+  left_join(
+    colData(se_scaled) %>% as_tibble() %>% 
+      select(BAM_ID, group, subject, visit, 
+             skin_type, replicate_ID, gender, 
+             scorad, scorad_objective, easi_total_score, 
+             date_visit, rna_quality, visit_quarter, biopsy_area)) %>% 
+  rename(T_cells = `T-cells`)
+
+# CLT
+
+CLT_m <- 
+  lapply(seq_along(colnames(CLT)[2:11]), lmm_test, data = CLT, 
+         cell_type_n = colnames(CLT)[2:11])
+CLT_p <- 
+  CLT_m %>% map_dfr(~ .x) %>% 
+  select(term, p.value, cell_type) %>% 
+  mutate(p.value = p.value %>% round(2)) %>% 
+  pivot_wider(names_from = term, values_from = p.value)
+CLT_estimate <-
+  CLT_m %>% map_dfr(~ .x) %>% 
+  select(term, estimate, cell_type) %>% 
+  mutate(estimate = estimate %>% round(2)) %>% 
+  pivot_wider(names_from = term, values_from = estimate)
+```
 
 ### Diversity measure
 ```{r diversity measure}
-library(tabula)
-library(magrittr)
-
 shannon <- 
   (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
   vegan::diversity()
@@ -1113,66 +1272,54 @@ similarity <-
   (data.matrix(multiomics_music$Est.prop.weighted) * 100) %>% 
   as_count() %>% 
   similarity(method = "bray")
+
+diversity_t <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(dominance = dominance@values,
+         evenness = evenness@values)
+
+lmer(dominance ~ skin_type + 
+       biopsy_area +
+       (1|visit) + (1|subject), 
+     diversity_t) %>% 
+  tidy()
+
+lmer(evenness ~ skin_type + 
+       biopsy_area +
+       (1|visit) + (1|subject), 
+     diversity_t) %>% 
+  tidy()
+
 ```
 
-### Correlation of Schwaan cells and SCORAD
-```{r}
-extensive_meta <- 
-  readr::read_csv("../multiomics-ad-transcriptomics/data/RNAseq_sample_annotation(extensive).csv", show_col_types = F)
-
-ALT_scorad_t <- 
-  ALT %>% 
-  left_join(extensive_meta %>% 
-              select(BAM_ID, contains("scorad"), -scorad, -scorad_objective) %>% 
+### Correlation between Schwaan cells and SCORAD
+```{r cor}
+ALT_scorad_t <-
+  ALT %>%
+  left_join(extensive_meta %>%
+              select(BAM_ID, contains("scorad"), -scorad, -scorad_objective) %>%
               mutate(across(!BAM_ID, ~ as.numeric(.x))),
-            by = "BAM_ID") %>% 
-  filter(skin_type == c("LS"))  %>% 
+            by = "BAM_ID") %>%
+  filter(skin_type == c("LS"))  %>%
   column_to_rownames("BAM_ID")
-
-ALT_scorad_m <-
-  
-  
-cor(ALT_scorad_t)
-
-
-ALT_scorad_test <-
-  expand_grid(
-    cell_type = colnames(ALT_scorad_t)[2:11],
-    score_type = colnames(ALT_scorad_t) %>% grep("scorad", ., value=T)
-  ) %>% 
-  filter(cell_type != "Melanocytes") %>% 
-  mutate(test = map2(cell_type, score_type, 
-                    function(cell_type, score_type){
-    x = ALT_scorad_t %>% pull(!! cell_type)
-    #                   cor <-
-    #   cor(x = ALT_scorad_t$cell_type,
-    #       y = ALT_scorad_t$score_type,
-    #       use = "complete.obs", method = "spearman")
-    # return(cor)
-  }))
-
-ALT_itchy_t %>% 
-  ggplot(aes(scorad_lichenification, Neuron_and_Schwann_cells)) +
-  geom_point() + geom_smooth(method = "lm")
-
-cor(x = ALT_itchy_t$scorad.x, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_pruritus_vas_0_10, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_sleep_loss_vas_0_10, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
-cor(x = ALT_itchy_t$scorad_lichenification, 
-    y = ALT_itchy_t$Neuron_and_Schwann_cells, 
-    use = "complete.obs", method = "spearman")
-
+cor.test(x = ALT_scorad_t$scorad, 
+         y = ALT_scorad_t$Neuron_and_Schwann_cells, 
+         use = "complete.obs", method = "spearman") %>% tidy()
+cor.test(x = ALT_scorad_t$scorad_pruritus_vas_0_10, 
+         y = ALT_scorad_t$Neuron_and_Schwann_cells, 
+         use = "complete.obs", method = "spearman") %>% tidy()
+cor.test(x = ALT_scorad_t$scorad_sleep_loss_vas_0_10, 
+         y = ALT_scorad_t$Neuron_and_Schwann_cells, 
+         use = "complete.obs", method = "spearman") %>% tidy()
+cor.test(x = ALT_scorad_t$scorad_lichenification, 
+         y = ALT_scorad_t$Neuron_and_Schwann_cells, 
+         use = "complete.obs", method = "spearman") %>% tidy()
 ```
+## Figure 5a
 
+## Figure 5b
+
+## Figure 5c
 
 
 ## Differential expressed genes: time
@@ -1914,200 +2061,7 @@ se["CKAP2LP1",] %>%
 ```
 
 
-## Cell deconvolution
-```{r MuSic, cache=TRUE}
-# se <- readr::read_rds("data/se.rds")
-# Construct ExpressionSet for bulk RNA-seq
-se_scaled <- se
-# se_scaled <- 
-assay(se_scaled) <- NULL
 
-multiomics <- 
-  as(se_scaled, "ExpressionSet")
-
-# Construct ExpressionSet for scRNA-seq
-emma_guttman <- readRDS("data/ext/emma_scrna_ExpressionSet.rds")
-
-multiomics_music <- music_prop(bulk.eset = multiomics, sc.eset = emma_guttman,
-                               clusters = "cell_type", samples = "sample_name")
-
-
-multiomics_results <-
-  data.matrix(multiomics_music$Est.prop.weighted) %>% 
-  as.data.frame() %>% rownames_to_column("BAM_ID") %>% 
-  pivot_longer(!BAM_ID, names_to = "cell_type", values_to = "prop") %>% 
-  left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
-
-cell_type_rank <- 
-  multiomics_results %>% group_by(cell_type) %>% 
-  summarize(mean_prop = mean(prop)) %>% arrange(-mean_prop) %>% pull(cell_type)
-
-exclude_low_KRT <-
-  multiomics_results %>% 
-  filter(cell_type == "Keratinocytes", prop < .11) %>% pull(BAM_ID)
-
-multiomics_results <-
-  multiomics_results %>% filter(!BAM_ID %in% exclude_low_KRT) %>% 
-  mutate(cell_type = forcats::fct_relevel(cell_type, cell_type_rank),
-         prop = prop * 100)
-
-deconvolution_vis_group <- 
-  multiomics_results %>% 
-  ggplot(aes(skin_type, prop, color = skin_type)) +
-  geom_jitter(width = .1) +
-  geom_boxplot(alpha = .4) +
-  facet_wrap(~cell_type, scales = "free") +
-  theme_classic() +
-  ggpubr::color_palette("jco")
-
-deconvolution_vis_group
-```
-
-### Mean bar plot
-```{r mean bar}
-multiomics_results %>% 
-  group_by(skin_type, cell_type) %>% 
-  summarise(mean = mean(prop)) %>% 
-  ggbarplot("skin_type", "mean", fill = "cell_type",
-            xlab = "Tissue type", ylab = "Proportion(%)", palette = "npg") %>% 
-    ggpar(legend = "bottom", 
-        legend.title = "Cell type",
-        font.legend = 7, 
-        font.tickslab = 6)
-```
-
-```{r appendix, eval=FALSE}
-multiomics_results_sample <- 
-  multiomics_results %>%
-  mutate(plot_name = paste(subject, visit, skin_type, replicate_ID, sep = "_"))
-
-multiomics_results_sample_count <-
-  multiomics_results_sample$plot_name %>% table
-
-multiomics_results_sample <-
-  multiomics_results_sample %>% 
-  filter(plot_name %in% names(which(multiomics_results_sample_count == 10)))
-
-multiomics_results_vis_sample <- 
-  multiomics_results_sample %>%  # filter(subject %in% c("AD_16", "CO_33")) %>% 
-  arrange(plot_name) %>% 
-  ggbarplot(x = "plot_name", y = "prop", fill = "cell_type", 
-            xlab = "Sample", ylab = "Proportion(%)", palette = "npg") %>% 
-  facet(facet.by = "subject", scales = "free") %>% 
-  ggpar(xtickslab.rt = 90, font.tickslab = 6)
-
-# pdf("figure/deconvolution_sample.pdf", height = 16.5 * 1.5, width = 11.7)
-# multiomics_results_vis_sample
-# dev.off()
-```
-
-### Statistics
-```{r statisticcs}
-MuSiC_matrix <-
-  data.matrix(multiomics_music$Est.prop.weighted)
-
-ALT <- # addictive log-ratio transformation
-  MuSiC_matrix %>% 
-  as_tibble(rownames = "BAM_ID") %>% 
-  # filter(Keratinocytes > .11) %>% 
-  mutate(across(!BAM_ID, ~ ifelse(.x == 0, NA, .x)),
-         across(!c("BAM_ID", "Melanocytes"), 
-                ~ log2(.x / Melanocytes)))  %>% 
-  left_join(
-    colData(se_scaled) %>% as_tibble() %>% 
-      select(BAM_ID, group, subject, visit, 
-             skin_type, replicate_ID, gender, 
-             scorad, scorad_objective, easi_total_score, 
-             date_visit, rna_quality, visit_quarter, biopsy_area)) %>% 
-  rename(T_cells = `T-cells`)
-
-C_v <- MuSiC_matrix %>% colMeans() # column mean vector
-C_m <- # column mean matrix
-  rep(C_v, nrow(MuSiC_matrix)) %>% matrix(nrow = nrow(MuSiC_matrix), byrow = T) 
-
-N_m <- 
-  log2(data.matrix(multiomics_music$Est.prop.weighted) / C_m)
-
-CLT <- # centred log-ratio transformation
-  N_m %>% 
-  as_tibble(rownames = "BAM_ID") %>% 
-  # filter(Keratinocytes > .11) %>% 
-  mutate(across(!BAM_ID, ~ ifelse(.x == -Inf, NA, .x)))  %>% 
-  left_join(
-    colData(se_scaled) %>% as_tibble() %>% 
-      select(BAM_ID, group, subject, visit, 
-             skin_type, replicate_ID, gender, 
-             scorad, scorad_objective, easi_total_score, 
-             date_visit, rna_quality, visit_quarter, biopsy_area)) %>% 
-  rename(T_cells = `T-cells`)
-
-library(lme4)
-library(lmerTest)
-library(broom.mixed)
-
-
-
-# CLT
-cell_type_n <- c(colnames(CLT)[2:11])
-
-lmm_test <- 
-  function(index, data){
-    f <- paste(cell_type_n[index], "~", "skin_type", "+",
-               "(1|subject)", "+", "visit_quarter", "+",
-               "biopsy_area")
-    lmm_nonpaired <-
-      lmer(f %>% as.formula(), data) %>% tidy() %>%
-      filter(str_detect(term, "skin_type")) %>%
-      mutate(term = paste(str_remove(term, "skin_type"), "vs HC"))
-         
-    lmm_paired <-
-      lmer(f %>% as.formula(), 
-           data %>%
-             filter(skin_type %in% c("LS", "NL"))) %>%
-      tidy()  %>%
-      filter(str_detect(term, "skin_type")) %>%
-      mutate(term = paste(str_remove(term, "skin_type"), "vs NL"))
-
-    lmm_t <- bind_rows(lmm_nonpaired,
-                       lmm_paired) %>%
-      mutate(cell_type = cell_type_n[index])
-       }
-
-ALT_m <- 
-  lapply(seq_along(cell_type_n), lmm_test, data = ALT)
-CLT_m <- 
-  lapply(seq_along(cell_type_n), lmm_test, data = CLT)
-
-
-ALT_p <- 
-  ALT_m %>% map_dfr(~ .x) %>% 
-  select(term, p.value, cell_type) %>% 
-  mutate(p.value = p.value %>% round(2)) %>% 
-  pivot_wider(names_from = term, values_from = p.value)
-
-ALT_estimate <-
-  ALT_m %>% map_dfr(~ .x) %>% 
-  select(term, estimate, cell_type) %>% 
-  mutate(estimate = estimate %>% round(2)) %>% 
-  pivot_wider(names_from = term, values_from = estimate)
-
-CLT_p <- 
-  CLT_m %>% map_dfr(~ .x) %>% 
-  select(term, p.value, cell_type) %>% 
-  mutate(p.value = p.value %>% round(2)) %>% 
-  pivot_wider(names_from = term, values_from = p.value)
-
-CLT_estimate <-
-  CLT_m %>% map_dfr(~ .x) %>% 
-  select(term, estimate, cell_type) %>% 
-  mutate(estimate = estimate %>% round(2)) %>% 
-  pivot_wider(names_from = term, values_from = estimate)
-
-ALT_p %>% 
-  write_csv("data/_TMP/cell_deconvolution_p.csv")
-ALT_estimate %>% 
-  write_csv("data/_TMP/cell_deconvolution_estimate.csv")
-```
 
 
 

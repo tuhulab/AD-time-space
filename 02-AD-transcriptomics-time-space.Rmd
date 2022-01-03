@@ -411,14 +411,19 @@ clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t t
 ```{r output table S1, eval=FALSE}
 table_s1 <- extensive_meta %>% 
   filter(visit == "01") %>% 
-  select(subject, gender, visit, visit_quarter, age, bmi, 
-         smoker, drinks_per_week, 
+  select(subject, gender, 
+         visit, visit_quarter, age, bmi, 
+         smoker, 
+         drinks_per_week, 
          prick_test_result,
          skin_type_fitzpatrick_scale,
          age_onset, 
-         other_atopy, 
-         family_eczema, family_atopy, education,
-         animal, contains("scorad"), contains("easi")) %>% 
+         other_atopic_disease = other_atopy, 
+         family_atopic_dermatitis = family_eczema, 
+         family_atopic_disease = family_atopy, 
+         education,
+         animal, 
+         contains("scorad"), contains("easi")) %>% 
   mutate(age = age %>% round(1),
          bmi = bmi %>% round(2)) %>% 
   arrange(subject, visit) %>% distinct()
@@ -470,6 +475,7 @@ de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result,
                    de_v1_LSvsNN = de_v1_LSvsNN_result, 
                    de_v1_NLvsNN = de_v1_NLvsNN_result)
 de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+de_v1_c %>% readr::write_rds("data/de_v1_c.rds")
 ```
 
 ```{r output table s2, eval=FALSE}
@@ -712,7 +718,7 @@ gsea_exp <-
                                           1, # .05
                                           1)
                        log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
-                                                        "TFT:GTRD"),
+                                                              "TFT:GTRD"),
                                                0, # 1
                                                0)
                        dge_result %>% 
@@ -848,6 +854,12 @@ gs_ad <- gsea_res_ex_filt %>% filter(pathway %in% c("REACTOME_CHEMOKINE_RECEPTOR
                                # pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05
                              ) %>% pull(pathway) %>% unique()
 
+gs_r <- 
+  gsea_res %>% 
+  filter(
+    (gs_name %in% c("TFT:GTRD") & padj < .05 & 
+       project == "multi-omics")) %>% pull(pathway) %>% unique()
+
 gsea_res_filt <-
   gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
   group_by(pathway, gs_name) %>% nest() %>% 
@@ -898,6 +910,12 @@ gsea_ad_p <-
                                             "NL/NN_derm",
                                             "NL/NN_FT")) %>% 
   mutate(
+    project = ifelse(project == "multi-omics", "GENAD", project),
+    project = factor(project, levels = c("acute_chronic",
+                                         "gse107361",
+                                         "gse120721",
+                                         "gse121212",
+                                         "GENAD")),
     des = des %>% str_replace_all("interleukin|Interleukin", "IL"),
     cat = case_when(
     pathway %in% c("PID_IL23_PATHWAY",
@@ -929,7 +947,7 @@ gsea_ad_p
 ```
 
 ```{r output figure 2, eval=FALSE}
-ggsave("data/supplementary/figure_2.png", gsea_ad_p, width = 9.5, height = 7)
+ggsave("data/supplementary/figure_2.png", gsea_ad_p, width = 10.5, height = 7)
 ```
 
 
@@ -956,7 +974,7 @@ vp_core <- variancePartition::fitExtractVarPartModel(
 vp_core_t <- 
   vp_core %>% as_tibble(rownames = "gene_name")
 
-# vp_core_t %>% saveRDS("data/vp_core_t.rds")
+vp_core_t %>% saveRDS("data/vp_core_t.rds")
 
 # plot 1 - violin
 vp_core_p <- vp_core
@@ -972,11 +990,6 @@ vpcore_violin <-
   plotVarPart_internal(vp_core_p) + 
   theme(plot.margin = margin(.5, .5, .5, 2, "cm")) +
   ylab("Var(%) explained")
-
-# vp_core_p %>% 
-#   as_tibble(rownames = "gene_name") %>% 
-#   select(gene_name, `tissue type (LS/NL/HC)`, individual, SCORAD, EASI, quarter, `anatomic region`, gender, unexplained) %>% 
-#   write.csv("data/supplementary/table_s5.csv")
 
 # plot 2 - cytokine dot plot
 cytokine_vp <- 
@@ -1595,12 +1608,6 @@ cor.test(x = ALT_scorad_t$scorad_lichenification,
 ```{r gsea - regulatory elements}
 
 # gene set regulatory
-gs_r <- 
-  gsea_res %>% 
-  filter(
-    (gs_name %in% c("TFT:GTRD") & padj < .05 & 
-       project == "multi-omics")) %>% pull(pathway) %>% unique()
-
 gsea_r_p <- 
   gsea_res_filt %>% filter(pathway %in% gs_r, 
                            !contrast %>% str_detect("PSO"),
@@ -1616,13 +1623,21 @@ gsea_r_p <-
                                             "LS/NN_epi",
                                             "LS/NN_FT",
                                             "NL/NN_derm",
-                                            "NL/NN_FT")) %>% 
+                                            "NL/NN_FT")) %>%
+  mutate(project = ifelse(project == "multi-omics",
+                          "GENAD",
+                          project),
+         project = factor(project, levels = c("acute_chronic",
+                                         "gse107361",
+                                         "gse120721",
+                                         "gse121212",
+                                         "GENAD"))) %>% 
   ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
   geom_point() +
   scale_size_area(max_size = 6) + 
   scale_color_gradient2(low="blue", mid = "white", high="red") +
   theme_bw() +
-  facet_grid(gs_name~project, scales = "free", space = "fixed") +
+  facet_grid(~project, scales = "free", space = "fixed") +
   theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
@@ -1686,20 +1701,20 @@ toptopncRNA_boxplot <-
 
 ```{r aggregate plot, dpi=600, fig.width=12, fig.height=8}
 regulatory_p <- 
-  ((gsea_r_p / LINC_vp_P) | toptopncRNA_boxplot) + 
+  ((gsea_r_p / ncRNA_vp_P) | toptopncRNA_boxplot) + 
   plot_annotation(tag_levels = "a") & 
                   theme(plot.tag = element_text(face = "bold"))
-regulatory_p
-
-# save the plot (Not execute)
-# png("figure/regulatory_p.png", width = 480*20, height= 480*12, res = 600)
-# regulatory_p
-# dev.off()
+ggsave("data/supplementary/figure_5a.jpeg", 
+       gsea_r_p, width = 7, height = 4)
+ggsave("data/supplementary/figure_5b.jpeg",
+       ncRNA_vp_P)
+ggsave("data/supplementary/figure_5c.jpeg",
+       toptopncRNA_boxplot)
 ```
 
 ```{r output figure 5, eval=FALSE}
 ggsave("data/supplementary/figure_5.png", regulatory_p, 
-       height = 8, width = 14, dpi = "retina")
+       height = 9.5, width = 14, dpi = "retina")
 ```
 ### ncRNA heatmap (Figure S5)
 
@@ -1898,14 +1913,7 @@ disease_severity_natural_year_g <-
 ggsave("data/supplementary/figure_s6.png", disease_severity_natural_year_g)
 ```
 
-```{r load data}
-clinical_records <- 
-  readr::read_csv("../multiomics-ad-transcriptomics/data/LEO-AD-metadata.csv") %>% 
-  mutate(id = id %>% str_replace("-", "_"),
-         JOIN_ID = paste(id, paste0("0",visit_no), sep="_"))
-se <- readr::read_rds("data/se.rds")
-se_krtap <- readr::read_rds("data/se_krtap.rds")
-```
+
 
 ```{r baseline characteristics}
 baseline_disease_severity <- 

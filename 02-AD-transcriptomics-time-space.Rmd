@@ -251,7 +251,7 @@ baseline_data <-
          easi_total_score, scorad, 
          scorad_objective) %>% 
   distinct() %>% 
-  mutate(ige_200h = ifelse(blood_ige > 200, TRUE, FALSE),
+  mutate(ige_150h = ifelse(blood_ige > 150, TRUE, FALSE),
          gender_female = ifelse(gender == "female", T, F),
          family_eczema = ifelse(family_eczema == "-", 
                                 F,
@@ -355,13 +355,13 @@ clinic_summary <-
             ige_mean = mean(blood_ige, na.rm = TRUE), 
             ige_sd = sd(blood_ige, na.rm = TRUE),
             ige_median = median(blood_ige, na.rm = TRUE),
-            ige_200h = sum(blood_ige > 200, na.rm = TRUE))
+            ige_150h = sum(blood_ige > 150, na.rm = TRUE))
 
 p_value <- 
   tibble(
     `Female%` = baseline_data %>% select(gender, group) %>% 
       table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
-    `Blood_Ige > 200` = baseline_data %>% select(group, ige_200h) %>% 
+    `Blood_Ige > 150` = baseline_data %>% select(group, ige_150h) %>% 
       table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
     age = t.test(x = baseline_data %>% filter(group == "AD") %>% select(age),
                  y = baseline_data %>% filter(group == "CO") %>% select(age))$p.value,
@@ -378,7 +378,7 @@ clinic_summary_t <-
          age = paste(age_mean %>% round(1) , "±", age_sd %>% round(1)),
          bmi = paste(bmi_mean %>% round(1) , "±", bmi_sd %>% round(1)),
          blood_ige = paste(blood_ige_mean %>% round(1) , "±", blood_ige_sd %>% round(1)),
-         `Blood_Ige > 200` = round(ige_200h / no_subject, 2) * 100,
+         `Blood_Ige > 150` = round(ige_150h / no_subject, 2) * 100,
          easi = paste(easi_mean %>% round(1) , "±", easi_sd %>% round(1)),
          scorad = paste(scorad_mean %>% round(1) , "±", scorad_sd %>% round(1)),
          oscorad = paste(oscorad_mean %>% round(1) , "±", oscorad_sd %>% round(1))) %>%
@@ -393,7 +393,7 @@ rownames(clinic_summary_t)[1] <- "Female(%)"
 rownames(clinic_summary_t)[2] <- "Age"
 rownames(clinic_summary_t)[3] <- "BMI"
 rownames(clinic_summary_t)[4] <- "Blood IgE"
-rownames(clinic_summary_t)[5] <- "Blood IgE>200(%)"
+rownames(clinic_summary_t)[5] <- "Blood IgE>150(%)"
 rownames(clinic_summary_t)[6] <- "EASI"
 rownames(clinic_summary_t)[7] <- "SCORAD"
 rownames(clinic_summary_t)[8] <- "oSCORAD"
@@ -401,7 +401,7 @@ colnames(clinic_summary_t)[2] <- "HC (n=30)"
 knitr::kable(clinic_summary_t, 
              format = "html", 
              caption = "Baseline characteristics of AD and HC group") %>% 
-  kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test.")
+  kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 150 (%) were tested by Fisher's exact test.")
 
 clinic_summary_t_xlsx <- clinic_summary_t %>% as_tibble(rownames = " ")
 clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test."

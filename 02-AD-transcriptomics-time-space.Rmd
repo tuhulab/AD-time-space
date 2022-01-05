@@ -1171,11 +1171,13 @@ time_outlier <-
     se[g_n, se$skin_type == skin_type] %>% as_tibble() %>% 
     ggboxplot(x = t,
               y = "counts_scaled",
+              add = "jitter",
               facet.by = "feature",
               xlab = ifelse(t == "visit_quarter", 
                             "quarter",
                             t),
               ylab = FALSE,
+              yscale = "log10",
               scales = "free", title = skin_type)
   }),
         save_f = pmap(list(skin_type, t, figure),
@@ -1602,7 +1604,7 @@ cor.test(x = ALT_scorad_t$scorad_lichenification,
          use = "complete.obs", method = "spearman") %>% tidy()
 ```
 
-## Genome regulatory mechanism (Figure 5)
+## Genome regulatory elements (Figure 5)
 
 ### Transcription factor enrichment (Figure 5a)
 ```{r gsea - regulatory elements}
@@ -1729,7 +1731,7 @@ MIR_g <-
   grep("MIR", ., value = T) %>% unique
 ```
 
-```{r}
+```{r heatmap-linc}
 se_linc <- se[LINC_g,]
 heatmap_linc_data <- 
   se_linc 
@@ -1747,7 +1749,6 @@ heatmap_linc_annotation <-
     `Anatomic region` = colData(heatmap_linc_data) %>% as_tibble() %>% pull(biopsy_area),
     col = list(`Tissue type` = pca_color,
                `Anatomic region` = color),
-    # simple_anno_size = unit(1, "cm"),
     annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
                                                         title_gp = gpar(fontsize = 16),
                                                         labels_gp = gpar(fontsize = 16)),
@@ -1756,13 +1757,19 @@ heatmap_linc_annotation <-
                                                           labels_gp = gpar(fontsize = 16))
                                    ))
 
+library(dendsort)
+col_dend <- heatmap_linc_data_m %>% t() %>% dist() %>% hclust
+col_dend_sort <- dendsort(col_dend)
+
 heatmap_linc <- ComplexHeatmap::Heatmap(heatmap_linc_data_m,
                         name = "gene expression",
                         column_dend_reorder = TRUE,
+                        row_dend_reorder = TRUE,
                         show_column_names = FALSE,
                         show_row_names = T,
                         show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = min(15, 800 * 6 /dim(heatmap_linc_data)[1])),
+                        # cluster_columns = col_dend_sort,
+                        row_names_gp = gpar(fontsize = min(8, 800 * 6 /dim(heatmap_linc_data)[1])),
                         top_annotation = heatmap_linc_annotation,
                         heatmap_legend_param = list(
                           title_gp = gpar(fontsize = 16),
@@ -1772,15 +1779,15 @@ heatmap_linc <- ComplexHeatmap::Heatmap(heatmap_linc_data_m,
 draw(heatmap_linc, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
-png("data/supplementary/heatmap_linc.png", 
-    width = 480*6, height = 480*10, res=300)
+png("data/supplementary/figure_s5.png", 
+    width = 480*6, height = 480*11, res=300)
 draw(heatmap_linc, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 dev.off()
 ```
 
-```{r}
-se_mir <- se[microRNA,]
+```{r heatmap-mir}
+se_mir <- se[MIR_g,]
 heatmap_mir_data <- 
   se_mir
 heatmap_mir_data_m <-
@@ -1809,14 +1816,18 @@ heatmap_mir_annotation <-
                                                           labels_gp = gpar(fontsize = 16))
                                    ))
 
+
 heatmap_mir <- ComplexHeatmap::Heatmap(heatmap_mir_data_m,
                         name = "gene expression",
-                        column_dend_reorder = TRUE,
+                        # column_dend_reorder = TRUE,
+                        # row_dend_reorder = TRUE,
                         # clustering_method_columns = "complete",
+                        cluster_columns = heatmap_mir_data_m %>% t() %>% dist() %>% hclust() %>% dendsort(),
+                        cluster_rows = heatmap_mir_data_m %>% dist() %>% hclust() %>% dendsort(),
                         show_column_names = FALSE,
                         show_row_names = T,
                         show_row_dend = FALSE,
-                        row_names_gp = gpar(fontsize = min(15, 800 * 6 / dim(heatmap_mir_data)[1])),
+                        row_names_gp = gpar(fontsize = min(9.5, 800 * 6 / dim(heatmap_mir_data)[1])),
                         top_annotation = heatmap_mir_annotation,
                         heatmap_legend_param = list(
                           title_gp = gpar(fontsize = 16),
@@ -1826,12 +1837,29 @@ heatmap_mir <- ComplexHeatmap::Heatmap(heatmap_mir_data_m,
 draw(heatmap_mir, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 
-png("data/supplementary/heatmap_linc.png", 
-    width = 480*6, height = 480*10, res=300)
-draw(heatmap_linc, heatmap_legend_side = "right",
+png("data/supplementary/figure_s6a.png", 
+    width = 480*6, height = 480*4, 
+    res=300)
+draw(heatmap_mir, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 dev.off()
 ```
+
+```{r MIR31 and CLDN1}
+MIR31_CLDN1 <- 
+  se[c("MIR31HG", "CLDN1"),] %>% as_tibble() %>% 
+  filter(skin_type == "LS") %>% 
+  select(feature, sample, counts_scaled, skin_type) %>% pivot_wider(names_from = feature, values_from = counts_scaled) %>% 
+  ggscatter(x = "CLDN1", 
+            y = "MIR31HG",
+            ylab = "miR-31",
+            xscale = "log10",
+            add = "reg.line",
+            ) +
+  stat_cor()
+ggsave("data/supplementary/figure_s6b.png", MIR31_CLDN1, width = 5, height = 5)
+```
+
 
 ## Disease severity change
 ### Figure S6
@@ -1862,18 +1890,7 @@ disease_severity <- extensive_meta %>%
          visit = visit %>% as.character(),
          visit_quarter = visit_quarter %>% as.character())
 
-# disease_severity_v <- 
-disease_severity %>% select(-visit) %>% 
-  rename(visit = visit_quarter) %>% mutate(visit_type = "quarter") %>% 
-  bind_rows(disease_severity %>% select(-visit_quarter) %>% 
-  mutate(visit_type = "visit") %>% 
-    mutate(visit = paste0("V", visit %>% as.numeric()))) %>% 
-  ggboxplot(x = "visit", 
-            y = "value", 
-            add = "point", 
-            color = "visit", xlab = FALSE, ylab=FALSE) %>%
-  facet(facet.by = c("disease_severity", "visit_type"), nrow = 3, scales = "free") %>% 
-  set_palette("npg")
+
 ```
 
 ```{r}
@@ -1910,7 +1927,7 @@ disease_severity_natural_year_g <-
   theme_classic() +
   theme(axis.title.y =  element_blank())
 
-ggsave("data/supplementary/figure_s6.png", disease_severity_natural_year_g)
+ggsave("data/supplementary/figure_s7.png", disease_severity_natural_year_g)
 ```
 
 

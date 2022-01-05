@@ -1,6 +1,6 @@
 # Multi-omics AD PhD
 
-This repo documents the reproducible data analysis pipelines for Multi-omics AD PhD project, based on [bookdown](https://github.com/rstudio/bookdown).
+This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Multi-omics AD PhD project.
 
 ## Paper 1: AD in time and space
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5819663.svg)](https://doi.org/10.5281/zenodo.5819663)
@@ -19,4 +19,4 @@ This repo documents the reproducible data analysis pipelines for Multi-omics AD 
 * Space effect - Hair (Figure 4c)
 * Cell deconvolution (Figure S4, Table 1)
 * Genome regulatory elements (Figure 5)
-* The longitudinal change of disease severity
+* The longitudinal change of disease severity (Figure S7)

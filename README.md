@@ -3,7 +3,8 @@
 This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Multi-omics AD PhD project.
 
 ## Paper 1: AD in time and space
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5819663.svg)](https://doi.org/10.5281/zenodo.5819663)
+
+[![DOI](https://zenodo.org/badge/378928145.svg)](https://zenodo.org/badge/latestdoi/378928145)
 
 [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](02-AD-transcriptomics-time-space.Rmd)
 

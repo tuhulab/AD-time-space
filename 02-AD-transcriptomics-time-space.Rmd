@@ -1507,11 +1507,7 @@ bioreplicates_t <-
   colData(se) %>% as_tibble() %>% 
   mutate(biological_rep_id = paste(subject, visit, skin_type)) %>% 
   filter(biological_rep_id %in% bioreplicates) %>% 
-  left_join(se[c("CCL17", "CCL18", "CCL20", "CCL22", "CCL26",
-                 "CXCL1", "CXCL10", "CXCL9", "FOXP3",
-                 "IL10", "IL22", "IL34", "IL37", "IL4R",
-                 "LORICRIN", "MMP12", "OSMR", "PI3",
-                 "S100A12", "S100A7", "STAT1"),] %>% as_tibble())
+  left_join(se[c("CCL22"),] %>% as_tibble())
 # saveRDS(bioreplicates_t, "data/_TMP/bioreplicate_t.rds")
 
 replicate_g <-
@@ -1532,9 +1528,56 @@ replicate_g <-
   xlab("replicate") +
   theme(axis.title.y = element_blank())
 
-ggsave("data/supplementary/supplement_replicate.png", replicate_g,
-       height = 25, width = 8)
+# ggsave("data/supplementary/supplement_replicate.png", replicate_g,
+#        height = 25, width = 8)
 ```
+
+```{r}
+t <-
+  readRDS(url("https://cdn.jsdelivr.net/gh/tuhulab/Shiny_AD_time_space@master/data/bioreplicate_t.rds")) %>%
+  select(biological_rep_id,
+         subject, visit, skin_type, feature,
+         counts_scaled, replicate_ID) %>%
+  arrange(biological_rep_id) %>%
+  mutate(counts_scaled = counts_scaled + 1) %>%
+  filter(feature %in% "CCL22") %>% 
+  mutate(skin_type = 
+           case_when(skin_type == "LS" ~ "Lesional",
+                     skin_type == "NL" ~ "Non-lesional",
+                     skin_type == "HC" ~ "Healthy control"),
+         skin_type = 
+           factor(skin_type, levels = c("Healthy control",
+                                        "Non-lesional",
+                                        "Lesional")))
+
+stat_test <-
+  t %>% group_by(feature, skin_type) %>%
+  t_test(counts_scaled ~ replicate_ID, paired = T) %>%
+  add_significance() %>%
+  add_xy_position(x = "replicate_ID",
+                  y.trans = log2, step.increase = .08) %>%
+  group_by(feature) %>% mutate(y.position = max(y.position)) %>%
+  ungroup()
+
+g_bioreplicate <- 
+t %>% filter(counts_scaled > 50) %>% 
+    pivot_wider(names_from = replicate_ID, values_from = counts_scaled) %>% 
+ggpaired(cond1 = "01", cond2 = "02", y = "counts_scaled",
+         xlab = "Biological replicate",
+         ylab = "",
+         line.color = "grey", line.size = .4,
+         fill = "skin_type",
+         palette = c("Lesional" = "#eb2d0c", 
+                     "Non-lesional" = "#eb8b9b", 
+                     "Healthy control" = "#91cf60")) %>%
+    facet(facet.by = c("skin_type"), scales = "free_y") +
+    stat_pvalue_manual(stat_test, label = "p") +
+    scale_y_continuous(trans = "log2", expand = expansion(mult = c(.05, .1)), breaks = c(10, 100, 1000, 10000, 30000)) +
+  rremove("legend")
+
+
+```
+
 
 ### correlation coefficient
 ```{r}

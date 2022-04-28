@@ -17,7 +17,7 @@ library(ggpubr)
 ### AD risk SNPs
 
 ```{r Phenome}
-
+print("Hello")
 ```
 
 

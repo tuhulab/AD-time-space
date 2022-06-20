@@ -1170,7 +1170,7 @@ core_genes <-
   read_csv("data/supplementary/table_s2.csv") %>%
   pull(gene_name) %>% unique
 
-se_core <- se[core_genes, 
+se_core <- se[intersect(rownames(se), core_genes), 
               which(se$rna_quality %in% c("high"))]
 
 seExpr_core <- calcNormFactors(se_core)
@@ -1209,7 +1209,8 @@ vpcore_violin <-
 # plot 2 - cytokine dot plot
 cytokine_vp <- 
   vp_core_t %>% 
-  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR")) %>% 
+  filter(gene_name %>% str_detect("^IL\\d{1}|TNF|EBI|IFN|OSMR"),
+         gene_name != "IL4I1") %>% 
   arrange(-skin_type) %>% 
   pivot_longer(cols = !gene_name, names_to = "term") %>% 
   filter(term == "skin_type", value > .05) %>% 
@@ -1227,17 +1228,22 @@ cytokine_vp_P <- ggpubr::ggdotchart(
 )
 
 # plot 3 - top cytokine boxplot
-top_cytokine <-
+top_cytokine_FVE <-
+  c(
   cytokine_vp %>% filter(term == "skin_type") %>% 
-  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name)
+  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name) %>% 
+  discard(function(x){x == "IL4I1"}),
+  "UGT3A2", "TTC38", "CHRM4", "LINC01605", "LINC02345"
+  )
+
 top_cytokine_boxplot <-
-  se[top_cytokine,] %>% as_tibble() %>% 
-  mutate(feature = feature %>% forcats::fct_relevel(top_cytokine)) %>% 
+  se[top_cytokine_FVE,] %>% as_tibble() %>% 
+  mutate(feature = .feature %>% forcats::fct_relevel(top_cytokine)) %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
             facet.by = "feature", xlab = FALSE,
             ylab = "counts", color = "skin_type", 
             palette = pca_color, legend.title = "",
-            font.legend = c(14), nrow = 1, yscale = "log10")
+            font.legend = c(14), nrow = 2, yscale = "log10")
   # stat_compare_means()
 
 # consolidate 3 plots
@@ -1249,7 +1255,8 @@ vp_core_p
 ### Figure 3
 ```{r output figure 3a, eval=FALSE}
 ggsave("data/supplementary/figure_3.png", vp_core_p, 
-       width = 12 * 1.2, height = 8 * 1.2, dpi = "retina")
+       width = 12 * 1.2, height = 8 * 1.2, 
+       dpi = "retina")
 ```
 
 ### Table S4

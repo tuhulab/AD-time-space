@@ -590,7 +590,7 @@ de_v1_c %>%
   DT::formatSignif("padj")
 ```
 
-### Compare DEG list with GSE121212, and MADAD
+### Compare DEG list with GSE121212, and MADAD (new figure 1b)
 
 ```{r only protein coding genes}
 clean_g_biomart <- function(gene_to_clean,
@@ -613,7 +613,6 @@ clean_g_biomart <- function(gene_to_clean,
 }
 ```
 
-
 ```{r}
 GENAD_DEG <- # GENAD DEG list
   readr::read_csv("data/supplementary/table_s2.csv")
@@ -624,7 +623,7 @@ GENAD_DEG_up <-
   pull(gene_name) %>%
   unique %>% 
   clean_g_biomart()
-clipr::write_clip(GENAD_DEG_up)
+# clipr::write_clip(GENAD_DEG_up)
 
 GSE121212_DEG <-
   readRDS(url("https://rawcdn.githack.com/tuhulab/gse121212/ab5db865c53d44ee381294bbaec34c31013e1f52/data/rds/aLS_CO_DGE.rds")) %>% 
@@ -635,7 +634,7 @@ GSE121212_DEG_up_clean <-
   filter(log2FoldChange > 0) %>% pull(gene_id) %>% 
   unique() %>% 
   clean_g_biomart()
-clipr::write_clip(GSE121212_DEG_up_clean)
+# clipr::write_clip(GSE121212_DEG_up_clean)
 
 MADAD <- 
   openxlsx::read.xlsx("~/Downloads/MADAD_original.xlsx", startRow = 2)
@@ -644,9 +643,7 @@ MADAD_up <-
   filter(lgFCH_LSvsNL_estimate > 0) %>% 
   pull(ENTREZID) %>% 
   clean_g_biomart(type = "entrezgene_id")
-clipr::write_clip(MADAD_up)
-
-
+# clipr::write_clip(MADAD_up)
 
 # downregulated
 GENAD_DEG_down <- 
@@ -655,21 +652,21 @@ GENAD_DEG_down <-
   pull(gene_name) %>%
   unique %>% 
   clean_g_biomart()
-clipr::write_clip(GENAD_DEG_down)
+# clipr::write_clip(GENAD_DEG_down)
 
 GSE121212_DEG_down <- 
   GSE121212_DEG %>% 
   filter(log2FoldChange < 0) %>% pull(gene_id) %>% 
   unique() %>% 
   clean_g_biomart()
-clipr::write_clip(GSE121212_DEG_down)
+# clipr::write_clip(GSE121212_DEG_down)
 
 MADAD_down <- 
   MADAD %>% 
   filter(lgFCH_LSvsNL_estimate < 0) %>% 
   pull(ENTREZID) %>% 
   clean_g_biomart(type = "entrezgene_id")
-clipr::write_clip(MADAD_down)
+# clipr::write_clip(MADAD_down)
 
 ```
 
@@ -710,7 +707,6 @@ se <-
 
 top100_g <- 
   openxlsx::read.xlsx("data/_TMP/heatmap_g.xlsx")
-
 
 se_heatmap_top100 <- se[top100_g$gene_name,] %>% 
   mutate(biopsy_area = ifelse(biopsy_area == "back_of_knee",
@@ -813,7 +809,7 @@ knitr::include_graphics("data/supplementary/figure_1b.png")
 ```
 
 ### Heatmap for all DGEs (Figure S1b)
-```{r figure 1c}
+```{r figure 1b}
 se_heatmap <- se[core_genes,] %>% 
   mutate(biopsy_area = ifelse(biopsy_area == "back_of_knee",
                               "back of knee",
@@ -857,7 +853,7 @@ draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
 ```
 
-```{r output figure 1c, eval=FALSE}
+```{r output figure 1b, eval=FALSE}
 png("data/supplementary/figure_1c.png", width = 480*6, height = 480*6, res=300)
 draw(heatmap, heatmap_legend_side = "right",
      annotation_legend_side = "top", merge_legend = FALSE)
@@ -1371,7 +1367,9 @@ dge_time[[2]] %>% unnest(cols = "result") %>%
 
 ad_sig_stat_g <- 
   dge_time[[2]] %>% unnest(cols = "result") %>% 
-    filter(padj < .05, abs(log2FoldChange) > 1) %>% filter(contrast =="LSvsNL", t =="visit_quarter") %>% pull(gene_name)
+    filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  filter(contrast =="LSvsNL", t =="visit_quarter") %>% 
+  pull(gene_name)
 
 ```
 
@@ -1388,27 +1386,60 @@ condition_specific_g <-
 
 g_tissue_injury <-
   se[c("SAA2", "MUC1", "MGST1", "PTGS2"),] %>% as_tibble() %>% 
-    ggline(x = "visit", 
-           y = "counts_scaled",
-           facet.by = "feature",
-           add = c("mean", "dotplot"),
-           color = "skin_type", 
-           palette = pca_color,
-           xlab = "Visit",
-           ylab = "Counts") %>% 
-    ggpar(yscale = "log10")
+    group_by(.feature, visit_quarter) %>% 
+    mutate(group_mean = mean(counts_scaled),
+           outlier = counts_scaled > 5 * group_mean,
+           outlier = ifelse(outlier, .8, .3)
+           # outlier = 0.05
+           ) %>%
+    ggplot(aes( x = visit_quarter, 
+                y = log2(counts_scaled + 1),
+                color = skin_type, 
+                fill = skin_type)) +
+    geom_jitter(aes(alpha = outlier) ,binaxis = "y", stackdir = "center") +
+    # geom_dotplot(aes(alpha = outlier) ,binaxis = "y", stackdir = "center") +
+    facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+    stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+    scale_fill_manual(values = pca_color) +
+    scale_color_manual(values = pca_color) +
+    ylab("log2 counts") + 
+    xlab("Quarter of visit") +
+    theme_classic()
+
+  
+  
+  
+    # ggline(x = "visit_quarter", 
+    #        y = "counts_scaled",
+    #        facet.by = ".feature",
+    #        add = c("mean", "dotplot"),
+    #        color = "skin_type", 
+    #        palette = pca_color,
+    #        xlab = "Quarter of visit",
+    #        ylab = "Counts") %>% 
+    # ggpar(yscale = "log10")
 
 g_subcutis <-
   se[c("CIDEC", "FABP4", "PLIN4"),] %>% as_tibble() %>% 
-    ggline(x = "visit", 
-           y = "counts_scaled",
-           facet.by = "feature",
-           add = c("mean", "dotplot"),
-           color = "skin_type", 
-           palette = pca_color,
-           xlab = "Visit",
-           ylab = "Counts") %>% 
-    ggpar(yscale = "log10")
+    group_by(.feature, visit_quarter) %>% 
+    mutate(group_mean = mean(counts_scaled),
+           outlier = counts_scaled > 5 * group_mean,
+           outlier = ifelse(outlier, .8, .3)
+           # outlier = 0.05
+           ) %>%
+    ggplot(aes( x = visit_quarter, 
+                y = log2(counts_scaled + 1),
+                color = skin_type, 
+                fill = skin_type)) +
+    geom_jitter(aes(alpha = outlier)) +
+    # geom_dotplot(aes(alpha = outlier) ,binaxis = "y", stackdir = "center") +
+    facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+    stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+    scale_fill_manual(values = pca_color) +
+    scale_color_manual(values = pca_color) +
+    ylab("log2 counts") + 
+    xlab("Quarter of visit") +
+    theme_classic()
 
 ```
 
@@ -1427,8 +1458,6 @@ time_variation_t <-
   ungroup %>% 
   select(skin_type, time_type, d)
 # saveRDS(time_variation_t, "data/_TMP/time_variation_t.rds")
-  
-
 
 
 time_outlier <-
@@ -1448,7 +1477,7 @@ time_outlier <-
     ggboxplot(x = t,
               y = "counts_scaled",
               add = "jitter",
-              facet.by = "feature",
+              facet.by = ".feature",
               xlab = ifelse(t == "visit_quarter", 
                             "quarter",
                             t),
@@ -1464,6 +1493,37 @@ time_outlier <-
         }))
 
 ```
+
+```{r fluctuating}
+time_variation_g <- 
+  se[c("IL34", "IL37", "CCL22", "IL2RB", 
+     "SERPINB4", "S100A9", "HRNR", 
+     "COL4A4", "OSM", "IL36A", "IL4R", "KRT16"), ] %>% 
+  as_tibble() %>% 
+  group_by(.feature, skin_type, visit_quarter) %>% 
+  ggplot(aes( x = visit_quarter, 
+              y = log2(counts_scaled + 1),
+              color = skin_type, 
+              fill = skin_type)) +
+  geom_dotplot(alpha = .1, binaxis = "y", stackdir = "center") +
+  facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+  stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+  scale_fill_manual(values = pca_color) +
+  scale_color_manual(values = pca_color) +
+  ylab("log2 counts") + 
+  xlab("Quarter of visit") +
+  theme_classic()
+
+ggsave("data/supplementary/time_variation_g.png",
+       time_variation_g,
+       width = 10 , height = 4, 
+       dpi = "retina")
+
+
+
+g_subcutis
+```
+
 
 ## Space effect - DGE anotomic area (Figure 4b 4c)
 ```{r DGE space, cache=TRUE, eval=FALSE}
@@ -1679,6 +1739,7 @@ multiomics <- as(se_scaled, "ExpressionSet")
 # GSE121212
 se_gse121212 <-
   read_rds("../gse121212/data/rds/se.rds") # download from https://github.com/tuhulab/gse121212/blob/master/data/rds/se.rds
+
 assay(se_gse121212) <- NULL
 colnames(se_gse121212) <- 
   colnames(se_gse121212) %>%
@@ -1700,6 +1761,7 @@ multiomics_results <-
   as.data.frame() %>% rownames_to_column("BAM_ID") %>% 
   pivot_longer(!BAM_ID, names_to = "cell_type", values_to = "prop") %>% 
   left_join(colData(se_scaled) %>% as_tibble() %>% select(BAM_ID, group, subject, visit, skin_type, replicate_ID, gender, scorad, scorad_objective, easi_total_score, date_visit, rna_quality, visit_quarter, biopsy_area))
+# saveRDS(multiomics_results, "data/MuSiC_result.rds")
 
 gse121212_results <- 
   data.matrix(gse121212_music$Est.prop.weighted) %>% 
@@ -2288,5 +2350,21 @@ follow_up <-
   distinct() %>% 
   summarise(n = n()) %>% 
   pivot_wider(names_from = group, values_from = n)
+```
+
+
+
+
+
+```{r test}
+tibble(
+  visit = c(rep("visit 1", 10), rep("visit 2", 10), rep("visit 3", 10)),
+  count = rnorm(n = 30)
+) %>% 
+  group_by(visit) %>% 
+  mutate(group_mean = mean(count),
+         outlier = ifelse( (count - group_mean) > (2* abs(group_mean)), 1, .5)) %>% 
+  ggplot(aes(visit, count)) +
+  geom_dotplot(aes(alpha = outlier), binaxis = "y", stackdir = "center")
 ```
 

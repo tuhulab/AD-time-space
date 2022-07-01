@@ -670,6 +670,53 @@ MADAD_down <-
 
 ```
 
+```{r}
+library(gplots)
+
+DEG_up <- list(
+  GENAD = GENAD_DEG_up %>% unique,
+  MADAD = MADAD_up %>% unique,
+  GSE121212 = GSE121212_DEG_up_clean %>% unique
+)
+
+DEG_down <- list(
+  GENAD = GENAD_DEG_down%>% unique,
+  MADAD = MADAD_down%>% unique,
+  GSE121212 = GSE121212_DEG_down%>% unique
+)
+
+DEG_up_venn <- 
+  venn(DEG_up, show.plot = F)
+
+DEG_down_venn <- 
+  venn(DEG_down, show.plot = F)
+
+de_v1_full <- 
+  read_rds("data/de_v1_full.rds")$de_v1_LSvsNL
+
+attributes(DEG_up_venn)$intersections %>% 
+  enframe(name = "Set", value = "gene") %>% 
+  mutate(direction = "up") %>% 
+  bind_rows(
+  attributes(DEG_down_venn)$intersections %>% 
+  enframe(name = "Set", value = "gene") %>% 
+  mutate(direction = "down")
+  ) %>% 
+  unnest() %>% 
+  left_join(de_v1_full, by = c("gene" = "gene_name")) %>% 
+  mutate(rank = -log10(padj) * log2FoldChange) %>% 
+  group_by(Set, direction) %>% 
+  summarise(`Median rank` = median(rank, na.rm = T) %>% round(2)) %>% 
+  arrange(-`Median rank`) %>%
+  pivot_wider(names_from = direction, values_from = `Median rank`) %>% 
+  rename(`Median Rank (upregulated genes)` = up,
+         `Median Rank (downregulated genes)` = down) %>% 
+  write_tsv("data/_TMP/overlapping_deg_rank.txt")
+
+  mutate(gene = map_chr(gene, ~ .x %>% str_c(collapse = " ")))
+
+```
+
 
 ## Transcriptomic profile (Figure S1, Figure 1b, old Figure 1c)
 

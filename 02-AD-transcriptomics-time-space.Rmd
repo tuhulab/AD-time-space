@@ -2380,8 +2380,6 @@ disease_severity_natural_year_g <-
 ggsave("data/supplementary/figure_s7.png", disease_severity_natural_year_g)
 ```
 
-
-
 ```{r baseline characteristics}
 baseline_disease_severity <- 
   clinical_records %>% filter(visit_no == 1, group == "AD") %>% 
@@ -2398,20 +2396,3 @@ follow_up <-
   summarise(n = n()) %>% 
   pivot_wider(names_from = group, values_from = n)
 ```
-
-
-
-
-
-```{r test}
-tibble(
-  visit = c(rep("visit 1", 10), rep("visit 2", 10), rep("visit 3", 10)),
-  count = rnorm(n = 30)
-) %>% 
-  group_by(visit) %>% 
-  mutate(group_mean = mean(count),
-         outlier = ifelse( (count - group_mean) > (2* abs(group_mean)), 1, .5)) %>% 
-  ggplot(aes(visit, count)) +
-  geom_dotplot(aes(alpha = outlier), binaxis = "y", stackdir = "center")
-```
-

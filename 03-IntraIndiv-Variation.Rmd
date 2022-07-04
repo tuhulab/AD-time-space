@@ -1,0 +1,204 @@
+---
+title: "03-IntraIndiv Variation"
+author: "Tu Hu"
+date: "01/07/2022"
+output: html_document
+---
+
+## Investigate genes showing high intra-individual variation
+
+```{r}
+library(dplyr)
+library(SummarizedExperiment)
+library(tidySummarizedExperiment)
+library(tidybulk)
+library(purrr)
+library(BiocParallel)
+register(MulticoreParam(20))
+```
+
+### Load data
+```{r}
+se <- readRDS("data/se.rds")
+```
+
+### Intra Indiv Variation Index
+
+We further analyzed the intra-individual gene expression variation. 
+Within our 339 skin samples, 290 samples were paired (48 HC pairs, 52 NL pairs, and 45 LS pairs).
+
+```{r paired samples}
+paired_sample <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(subject_visit_skintype = paste(subject, visit, skin_type)) %>% 
+  group_by(subject_visit_skintype, subject, visit, skin_type) %>% 
+  summarise(n = n()) %>% 
+  filter(n > 1)
+
+n_paired_sample <- nrow(paired_sample)
+
+paired_sample_st <-  # paired sample skin type
+  paired_sample %>% 
+  group_by(skin_type) %>% 
+  summarise(n = n())
+```
+
+```{r cooks_distance}
+cooksd <- 
+  runonce::save_run(
+    bplapply(1:nrow(se), function(index){
+    se_index <- se[index, ] %>% as_tibble() %>% mutate(expr = log2(1 + counts_scaled))
+    model <- lmerTest::lmer(expr ~ skin_type + (1|subject), data = se_index) %>% 
+      broom.mixed::augment() %>% 
+      group_by(skin_type) %>% 
+      summarise(median_cooksd = median(.cooksd)) %>% 
+      mutate(gene_name = se_index$.feature[1])
+    return(model)
+  }),
+   "data/cooksd_IntraIndiv.rds"
+  )
+
+cooksd_t <- 
+  cooksd %>% purrr::reduce(bind_rows)
+
+
+```
+
+```{r}
+cooksd_t %>% 
+  group_by(gene_name) %>% 
+  summarise(cooksd = mean(median_cooksd)) %>% 
+  arrange(-cooksd) %>% 
+  left_join(annotLookup, by = c("gene_name" = "hgnc_symbol")) %>% 
+  ggboxplot(x = "gene_biotype",
+            y = "cooksd", orientation = "horizontal")
+```
+assumption: larger exp larger var
+
+```{r}
+expr_cooksd <- 
+  lapply(c("LS", "NL", "HC"),
+       function(x){
+         se_skintype <- se[,se$skin_type == x]
+         expr_skintype <- 
+           assay(se_skintype, 2) %>% rowMeans() %>% 
+           enframe(name = "gene_name", value = "sum_expr") %>% 
+           mutate(sum_expr = log2(sum_expr + 1)) %>% 
+           mutate(skin_type = x)
+         return(expr_skintype)
+       }) %>% 
+  purrr::reduce(bind_rows) %>% 
+  left_join(cooksd_t)
+
+expr_cooksd %>% ggscatter(x = "sum_expr", y = "median_cooksd", facet.by = "skin_type")
+```
+
+
+```{r}
+cooksd_t %>% pivot_wider(names_from = skin_type, 
+                         values_from = median_cooksd) %>% 
+  arrange(-LS)
+```
+
+### Variation
+```{r}
+IntraIndivIndexCalc <- function(index){
+  IVI <- 
+    se[index,] %>% as_tibble() %>% 
+    inner_join(paired_sample) %>% 
+    mutate(expr = log2(counts_scaled + 1)) %>% 
+    group_by(skin_type) %>% 
+    nest %>% 
+    mutate(mean_expr = map_dbl(data, ~ .x$expr %>% mean),
+           median_var = map_dbl(data, ~ .x %>% group_by(subject, visit) %>% 
+                                summarise(diff = max(expr) - min(expr)) %>% 
+                                pull(diff) %>% 
+                                median),
+           IVI = median_var / mean_expr,
+           gene_name = map_chr(data, ~ .x$.feature[1]))
+  IVI_res <- IVI %>% select(gene_name, skin_type, mean_expr, median_var, IVI)
+  return(IVI_res)
+}
+
+
+```
+
+
+```{r }
+IntraIndivIndex <- 
+  runonce::save_run(
+    suppressMessages(bplapply(1:nrow(se), IntraIndivIndexCalc)) %>% 
+    purrr::reduce(bind_rows),
+  "data/IntraIndivIndex.rds"
+  )
+
+IVI <- 
+  IntraIndivIndex %>% 
+  group_by(skin_type, gene_name) %>% 
+  summarise(IVI_g = mean(IVI))
+  # mutate(NIVI = (NIVI - min(NIVI)) / (max(NIVI) - min(NIVI))) %>% 
+  group_by(gene_name) %>% 
+  mutate(NIVI_g = mean(NIVI))
+
+IntraIndivIndex %>% 
+  ggplot(aes(IVI, color = skin_type)) +
+  stat_ecdf(geom = "step", pad = FALSE) +
+  coord_flip() +
+  ylab("Density") +
+  theme_classic()
+
+```
+
+```{r}
+g <- cooksd_t$gene_name
+mart <- biomaRt::useMart("ENSEMBL_MART_ENSEMBL")
+mart <- biomaRt::useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- 
+  biomaRt::getBM(
+    mart = mart,
+    attributes = c("hgnc_symbol", "gene_biotype"), 
+    filters = "hgnc_symbol",
+    values = g, 
+    uniqueRows=TRUE)
+```
+
+
+
+```{r}
+g_high_indiv_var <- 
+  NIVI %>% select(gene_name, NIVI_g) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  slice_max(NIVI_g, n = 10) %>% 
+  pull(gene_name)
+
+se[g_high_indiv_var,] %>% 
+  as_tibble() %>% 
+  inner_join(paired_sample) %>% 
+  mutate(expr = log2(counts_scaled + 1) ) %>% 
+  select(.feature, skin_type, subject_visit_skintype, replicate_ID, expr) %>% 
+  pivot_wider(names_from = replicate_ID, values_from = expr) %>% 
+  ggpaired(cond1 = "01", cond2 = "02", 
+           facet.by = c("skin_type", ".feature"),
+           fill = "skin_type",
+           line.color = "gray",
+           line.size = 0.4,
+           scales = "free")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

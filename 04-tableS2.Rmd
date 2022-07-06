@@ -1,0 +1,83 @@
+---
+title: "4-tableS2.Rmd"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DESeq2)
+library(BiocParallel)
+library(dplyr)
+register(MulticoreParam(8))
+```
+
+## Differential expressed genes: baseline (Table S2)
+
+```{r}
+se <- readRDS("data/se.rds")
+```
+
+```{r DGE-V1, cache=TRUE, eval=FALSE}
+# V1 LSvsNL --------------------
+se_v1_LSvsNL <- se[, se$visit == "01" & se$skin_type %in% c("LS", "NL")]
+de_v1_LSvsNL <- DESeq2::DESeqDataSet(se_v1_LSvsNL, ~ subject + skin_type)
+de_v1_LSvsNL <- DESeq2::DESeq(de_v1_LSvsNL, parallel = TRUE)
+de_v1_LSvsNL_LFC <- lfcShrink(de_v1_LSvsNL, coef = "skin_type_LS_vs_NL", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNL_result <- de_v1_LSvsNL_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
+de_v1_LSvsNL_result_s <- de_v1_LSvsNL_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
+# V1 LSvsNN --------------------
+se_v1_LSvsNN <- se[, se$visit == "01" & se$skin_type %in% c("LS", "HC")]
+de_v1_LSvsNN <- DESeq2::DESeqDataSet(se_v1_LSvsNN, ~ gender + skin_type) 
+de_v1_LSvsNN <- DESeq2::DESeq(de_v1_LSvsNN, parallel = TRUE)
+de_v1_LSvsNN_LFC <- lfcShrink(de_v1_LSvsNN, coef = "skin_type_LS_vs_HC", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_LSvsNN_result <- de_v1_LSvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
+de_v1_LSvsNN_result_s <- de_v1_LSvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
+# V1 NLvsNN --------------------
+se_v1_NLvsNN <- se[, se$visit == "01" & se$skin_type %in% c("NL", "HC")]
+de_v1_NLvsNN <- DESeq2::DESeqDataSet(se_v1_NLvsNN, ~ gender + skin_type) 
+de_v1_NLvsNN <- DESeq2::DESeq(de_v1_NLvsNN, parallel = TRUE)
+de_v1_NLvsNN_LFC <- lfcShrink(de_v1_NLvsNN, coef = "skin_type_NL_vs_HC", type = "apeglm", parallel = TRUE, quiet = TRUE)
+de_v1_NLvsNN_result <- de_v1_NLvsNN_LFC %>% as.data.frame() %>% tibble::rownames_to_column(var = "gene_name") %>% tibble()
+de_v1_NLvsNN_result_s <- de_v1_NLvsNN_result %>% filter(padj < .05, abs(log2FoldChange) > 1)
+
+# Consolidate the results -----
+de_v1_c <-
+  bind_rows(de_v1_LSvsNL_result_s %>% mutate(contrast = "LSvsNL"),
+            de_v1_LSvsNN_result_s %>% mutate(contrast = "LSvsHC"),
+            de_v1_NLvsNN_result_s %>% mutate(contrast = "NLvsHC")) %>% 
+  mutate(direction = ifelse(log2FoldChange > 0, "up", "down"))
+
+de_v1_c_s <-
+  de_v1_c %>% 
+  group_by(contrast) %>% 
+  summarise(n_dys = n())
+# No of dysregulated genes
+n_de_v1_LSvsNL <- de_v1_c_s %>% filter(contrast == "LSvsNL") %>% pull(n_dys)
+n_de_v1_LSvsNN <- de_v1_c_s %>% filter(contrast == "LSvsHC") %>% pull(n_dys)
+n_de_v1_NLvsNN <- de_v1_c_s %>% filter(contrast == "NLvsHC") %>% pull(n_dys)
+de_v1_full <- list(de_v1_LSvsNL = de_v1_LSvsNL_result, 
+                   de_v1_LSvsNN = de_v1_LSvsNN_result, 
+                   de_v1_NLvsNN = de_v1_NLvsNN_result)
+```
+
+```{r eval=FALSE}
+de_v1_full %>% readr::write_rds("data/de_v1_full.rds")
+```
+
+```{r output table s2, eval=FALSE}
+de_v1_c %>% readr::write_csv("data/supplementary/table_s2.csv")
+```
+
+```{r AD disease signature}
+de_v1_c %>% 
+  select(gene_name, log2FoldChange, padj, contrast) %>% 
+  DT::datatable(rownames = F, options = list(
+    order = list(list(1, "desc"), list(2, "aes"))
+  )) %>% 
+  DT::formatRound("log2FoldChange") %>% 
+  DT::formatSignif("padj")
+```

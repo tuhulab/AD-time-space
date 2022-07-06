@@ -1,4 +1,4 @@
-# AD in time and space assessed by mini-biopsy
+# Atopic dermatitis in time and space
 
 This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Tu Hu's PhD project.
 
@@ -26,3 +26,11 @@ This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible 
 | 14-figureS6.Rmd                   | Figure S6 (Correlation heatmap of IL34, IL37, UGT3A2 and inflammatory biomarkers)   |
 
 ## Shiny application for data exploration and downloading
+
+-   [Shiny app](https://bit.ly/34OlBal)
+
+-   [Github](https://github.com/tuhulab/Shiny_AD_time_space)
+
+## Data availability
+
+-   RNA-seq data is available at GEO under the accession number [GSE193309](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE193309)

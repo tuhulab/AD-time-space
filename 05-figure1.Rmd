@@ -1,0 +1,253 @@
+---
+title: "Figure 1 (PCA, heatmap, Venn)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidySummarizedExperiment)
+library(tidybulk)
+library(ComplexHeatmap)
+```
+
+## Figure 1a: 3-d PCA
+```{r figure 1a-pca}
+se <- readRDS("data/se.rds")
+de_v1_c <- 
+  readr::read_csv("data/supplementary/table_s2.csv")
+core_genes <- 
+  de_v1_c %>% 
+  pull(gene_name) %>% 
+  unique()
+
+# dimension reduction
+PCA_core <- 
+  se[core_genes,] %>% 
+  reduce_dimensions(method = "PCA")
+
+PCA_core_d <- 
+  attr(PCA_core, "internals")$PCA
+```
+
+```{r figure 1b-pca-vis, eval=FALSE}
+pca3d::pca3d(PCA_core_d, 
+             group = PCA_core$skin_type, 
+             col = pca_color, radius = 1.5, 
+             shape = "s", 
+             show.plane = FALSE)
+
+# save figure
+rgl::snapshot3d("data/supplementary/figure_1b.png", fmt="png")
+```
+
+```{r figure 1b-pca-vis-show-vis, fig.cap = "pca 3d plot", dpi=300, out.width='80%'}
+knitr::include_graphics("data/supplementary/figure_1b.png")
+```
+
+## Figure 1b: Heatmap for top genes (new Figure 1b)
+```{r fig-s1b-heatmap-top100}
+top100_g <- 
+  openxlsx::read.xlsx("data/heatmap_g.xlsx") %>% 
+  as_tibble()
+
+se_heatmap_top100 <- se[intersect(top100_g$gene_name,
+                                  rownames(se)),] %>% 
+  mutate(biopsy_area = ifelse(biopsy_area == "back_of_knee",
+                              "back of knee",
+                              biopsy_area))
+
+rownames(se_heatmap_top100) <- 
+  top100_g$display_name
+
+heatmap_data_m_top100 <-
+  scale(assay(se_heatmap_top100, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+
+sample_site_color <- 
+  colData(se_heatmap_top100) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+
+gene_theme_color <- RColorBrewer::brewer.pal(length(top100_g$theme), "Accent")
+names(gene_theme_color) <- top100_g$theme %>% unique()
+
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_heatmap_top100) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(se_heatmap_top100) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = 
+                 c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60"),
+               `Anatomic region` = color),
+    annotation_legend_param = 
+      list(`Tissue type` = list(nrow = 1, title_gp = gpar(fontsize = 12),
+                                labels_gp = gpar(fontsize = 10)),
+           `Anatomic region` = list(nrow = 1, title_gp = gpar(fontsize = 12),
+                                    labels_gp = gpar(fontsize = 10))
+                                   ))
+
+heatmap_top100 <- ComplexHeatmap::Heatmap(heatmap_data_m_top100,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_names = TRUE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = 9),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 12),
+                          labels_gp = gpar(fontsize = 10)
+                          ),
+                        column_split = se_heatmap_top100$skin_type,
+                        row_split = top100_g$theme,
+                        row_title = gt_render(
+                          c("Noncoding<br>RNA",
+                            "Skin<br>barrier<br>and<br>physiology",
+                            "Immune<br>response",
+                            "G protein<br>coupled<br>receptor")
+                        ),
+                        row_title_rot = 0, 
+                        row_title_side = "right",
+                        row_title_gp = gpar(fill = gene_theme_color))
+
+draw(heatmap_top100, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+```
+
+```{r output fig s1b, eval=FALSE}
+png("data/supplementary/figure_1b.png", width = 480*6.5, height = 480*6, res=300)
+draw(heatmap_top100, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
+
+## Figure 1c: Venn diagram (Compare DEG list with GSE121212, and MADAD)
+
+```{r only protein coding genes}
+clean_g_biomart <- function(gene_to_clean,
+                            type = "hgnc_symbol"){
+  g <- gene_to_clean
+  mart <- biomaRt::useMart("ENSEMBL_MART_ENSEMBL")
+  mart <- biomaRt::useDataset("hsapiens_gene_ensembl", mart)
+  annotLookup <- biomaRt::getBM(
+    mart = mart,
+    attributes = c(
+      "hgnc_symbol",
+      "entrezgene_id",
+      "ensembl_gene_id",
+      "gene_biotype"),
+    filter = type,
+    values = g,
+    uniqueRows=TRUE)
+  g_p <- annotLookup %>% filter(gene_biotype == "protein_coding") %>% pull(hgnc_symbol)
+  return(g_p)
+}
+```
+
+```{r}
+GENAD_DEG <- # GENAD DEG list
+  readr::read_csv("data/supplementary/table_s2.csv")
+
+GENAD_DEG_up <- 
+  GENAD_DEG %>% 
+  filter(log2FoldChange > 0) %>% 
+  pull(gene_name) %>%
+  unique %>% 
+  clean_g_biomart()
+# clipr::write_clip(GENAD_DEG_up)
+
+GSE121212_DEG <-
+  readRDS(url("https://rawcdn.githack.com/tuhulab/gse121212/ab5db865c53d44ee381294bbaec34c31013e1f52/data/rds/aLS_CO_DGE.rds")) %>% 
+  bind_rows(readRDS(url("https://rawcdn.githack.com/tuhulab/gse121212/ab5db865c53d44ee381294bbaec34c31013e1f52/data/rds/aLS_NL_DGE.rds")))
+
+GSE121212_DEG_up_clean <- 
+  GSE121212_DEG %>% 
+  filter(log2FoldChange > 0) %>% pull(gene_id) %>% 
+  unique() %>% 
+  clean_g_biomart()
+# clipr::write_clip(GSE121212_DEG_up_clean)
+
+MADAD <- 
+  openxlsx::read.xlsx("~/Downloads/MADAD_original.xlsx", startRow = 2)
+MADAD_up <- 
+  MADAD %>% 
+  filter(lgFCH_LSvsNL_estimate > 0) %>% 
+  pull(ENTREZID) %>% 
+  clean_g_biomart(type = "entrezgene_id")
+# clipr::write_clip(MADAD_up)
+
+# downregulated
+GENAD_DEG_down <- 
+  GENAD_DEG %>% 
+  filter(log2FoldChange < 0) %>% 
+  pull(gene_name) %>%
+  unique %>% 
+  clean_g_biomart()
+# clipr::write_clip(GENAD_DEG_down)
+
+GSE121212_DEG_down <- 
+  GSE121212_DEG %>% 
+  filter(log2FoldChange < 0) %>% pull(gene_id) %>% 
+  unique() %>% 
+  clean_g_biomart()
+# clipr::write_clip(GSE121212_DEG_down)
+
+MADAD_down <- 
+  MADAD %>% 
+  filter(lgFCH_LSvsNL_estimate < 0) %>% 
+  pull(ENTREZID) %>% 
+  clean_g_biomart(type = "entrezgene_id")
+# clipr::write_clip(MADAD_down)
+
+```
+
+```{r}
+library(gplots)
+
+DEG_up <- list(
+  GENAD = GENAD_DEG_up %>% unique,
+  MADAD = MADAD_up %>% unique,
+  GSE121212 = GSE121212_DEG_up_clean %>% unique
+)
+
+DEG_down <- list(
+  GENAD = GENAD_DEG_down%>% unique,
+  MADAD = MADAD_down%>% unique,
+  GSE121212 = GSE121212_DEG_down%>% unique
+)
+
+DEG_up_venn <- 
+  venn(DEG_up, show.plot = F)
+
+DEG_down_venn <- 
+  venn(DEG_down, show.plot = F)
+
+attributes(DEG_up_venn)$intersections %>% 
+  enframe(name = "Set", value = "gene") %>% 
+  mutate(direction = "up") %>% 
+  bind_rows(
+  attributes(DEG_down_venn)$intersections %>% 
+  enframe(name = "Set", value = "gene") %>% 
+  mutate(direction = "down")
+  ) %>% 
+  unnest() %>% 
+  left_join(de_v1_full, by = c("gene" = "gene_name")) %>% 
+  mutate(rank = -log10(padj) * log2FoldChange) %>% 
+  group_by(Set, direction) %>% 
+  summarise(`Median rank` = median(rank, na.rm = T) %>% round(2)) %>% 
+  arrange(-`Median rank`) %>%
+  pivot_wider(names_from = direction, values_from = `Median rank`) %>% 
+  rename(`Median Rank (upregulated genes)` = up,
+         `Median Rank (downregulated genes)` = down) %>% 
+  write_tsv("data/_TMP/overlapping_deg_rank.txt")
+
+  mutate(gene = map_chr(gene, ~ .x %>% str_c(collapse = " ")))
+
+```
+
+
+

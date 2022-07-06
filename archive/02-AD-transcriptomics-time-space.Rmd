@@ -746,7 +746,6 @@ cosine_df %>%
 lapply(cosine_st, median)
 ```
 
-
 ### Heatmap for top genes (new Figure 1c)
 ```{r fig-s1b-heatmap-top100}
 se <- 
@@ -1213,7 +1212,7 @@ core_genes <-
   read_csv("data/supplementary/table_s2.csv") %>%
   pull(gene_name) %>% unique
 
-se_core <- se[intersect(rownames(se), core_genes), 
+se_core <- se[c(intersect(rownames(se), core_genes), "IL36A"), 
               which(se$rna_quality %in% c("high"))]
 
 seExpr_core <- calcNormFactors(se_core)
@@ -1274,14 +1273,14 @@ cytokine_vp_P <- ggpubr::ggdotchart(
 top_cytokine_FVE <-
   c(
   cytokine_vp %>% filter(term == "skin_type") %>% 
-  arrange(-var_explained) %>% slice_head(n = 5) %>% pull(gene_name) %>% 
+  arrange(-var_explained) %>% slice_head(n = 6) %>% pull(gene_name) %>% 
   discard(function(x){x == "IL4I1"}),
-  "UGT3A2", "TTC38", "CHRM4", "LINC01605", "LINC02345"
+  "UGT3A2", "TTC38", "CHRM4", "LINC01605"
   )
 
 top_cytokine_boxplot <-
   se[top_cytokine_FVE,] %>% as_tibble() %>% 
-  mutate(feature = .feature %>% forcats::fct_relevel(top_cytokine)) %>% 
+  mutate(feature = .feature %>% forcats::fct_relevel(top_cytokine_FVE)) %>% 
   ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
             facet.by = "feature", xlab = FALSE,
             ylab = "counts", color = "skin_type", 
@@ -1547,6 +1546,7 @@ time_variation_g <-
      "SERPINB4", "S100A9", "HRNR", 
      "COL4A4", "OSM", "IL36A", "IL4R", "KRT16"), ] %>% 
   as_tibble() %>% 
+  filter(!is.na(visit_quarter)) %>% 
   group_by(.feature, skin_type, visit_quarter) %>% 
   ggplot(aes( x = visit_quarter, 
               y = log2(counts_scaled + 1),
@@ -1555,8 +1555,8 @@ time_variation_g <-
   geom_dotplot(alpha = .1, binaxis = "y", stackdir = "center") +
   facet_wrap(~ .feature, scales = "free", nrow = 2) + 
   stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
-  scale_fill_manual(values = pca_color) +
-  scale_color_manual(values = pca_color) +
+  scale_fill_manual(values = pca_color, name = "Tissue type") +
+  scale_color_manual(values = pca_color, name = "Tissue type") +
   ylab("log2 counts") + 
   xlab("Quarter of visit") +
   theme_classic()
@@ -1566,9 +1566,6 @@ ggsave("data/supplementary/time_variation_g.png",
        width = 10 , height = 4, 
        dpi = "retina")
 
-
-
-g_subcutis
 ```
 
 

@@ -1,0 +1,97 @@
+---
+title: "Upload data to GEO"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(SummarizedExperiment)
+```
+
+## Upload data to GEO
+
+### md5 check sum
+```{r checksum files, eval=FALSE}
+md5sum <- 
+  readr::read_delim("data/geo/geo_md5sum.txt", delim = "  ", 
+                  col_names = c("md5sum", "file_name")) %>% 
+  mutate(file_name=file_name %>% str_remove("read/"),
+         lib_id = file_name %>% str_extract("lib\\d{1,}"))
+```
+
+### sample metadata
+```{r metadata for GEO, eval=FALSE}
+se <- readr::read_rds("data/se.rds")
+geo_metadata <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(title = paste(visit, subject, skin_type, replicate_ID,
+                       sep = "_"),
+         `source name` = "skin biopsy",
+         organism = "Homo sapians") %>% 
+  select(BAM_ID,
+         title, 
+         `source name`,
+         organism,
+         subject,
+         skin_type,
+         gender,
+         scorad,
+         easi_total_score,
+         visit, date_visit,
+         biopsy_area,
+         library_ID)
+
+geo_metadata_n <-
+  geo_metadata %>% 
+  # select(title, library_ID) %>%
+  left_join(md5sum, by = c("library_ID" = "lib_id")) %>% 
+  group_by(title) %>% nest() %>% 
+  mutate(raw_file = data %>% map("file_name"),
+         md5sum = data %>% map("md5sum"),
+         data = data %>% map(~ select(.x, -md5sum, -file_name))) %>% 
+  unnest(cols = data) %>% 
+  distinct()
+```
+
+```{r eval=FALSE}
+geo_metadata_n %>% 
+  openxlsx::write.xlsx("data/geo/geo_meta.xlsx")
+```
+
+### count matrix
+```{r} 
+geo_md5sum <- 
+  geo_metadata_n %>% 
+  ungroup %>% 
+  unnest(cols = c(raw_file, md5sum)) %>% 
+  select(raw_file, md5sum)
+openxlsx::write.xlsx(geo_md5sum, "data/geo/geo_md5sum.xlsx")
+
+count_matrix <-
+  assay(se, 1) %>% as_tibble(rownames = "gene_name")
+colnames(count_matrix)[-1] <- geo_metadata$title
+readr::write_csv(count_matrix, "data/geo/count_matrix.csv")
+
+count_matrix_normalized <-
+  assay(se, 2) %>% as_tibble(rownames = "gene_name")
+colnames(count_matrix_normalized)[-1] <- geo_metadata$title
+readr::write_csv(count_matrix_normalized, "data/geo/count_matrix_normalized.csv")
+```
+
+### paired-end data specification
+```{r paired, eval=FALSE}
+geo_md5sum %>% 
+  select(raw_file) %>% 
+  mutate(raw_file = raw_file %>% str_remove("_(1|2).fastq.gz")) %>% 
+  distinct() %>% 
+  mutate(pair_1 = paste0(raw_file, "_1.fastq.gz"),
+         pair_2 = paste0(raw_file, "_2.fastq.gz")) %>% 
+  select(contains("pair")) %>% 
+  openxlsx::write.xlsx("data/geo/geo_paired.xlsx")
+```

@@ -1,0 +1,130 @@
+---
+title: "Figure 3 (Variance partition analysis)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(limma)
+library(edgeR)
+
+
+library(SummarizedExperiment)
+library(tidySummarizedExperiment)
+library(patchwork)
+library(ggpubr)
+library(variancePartition)
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(purrr)
+
+
+
+```
+
+## 
+
+## Variance parition analysis (Figure 3, Table S4, Table S5)
+
+```{r VP core gene, cache=TRUE, dpi=600, fig.width=12}
+# transform data for linear modeling
+se <- readr::read_rds("data/se.rds")
+core_genes <- 
+  readr::read_csv("data/supplementary/table_s2.csv") %>%
+  pull(gene_name) %>% unique
+
+se_core <- se[core_genes, which(se$rna_quality %in% c("high"))]
+
+seExpr_core <- calcNormFactors(se_core)
+design_core <- model.matrix(~ skin_type, seExpr_core$samples)
+vobj_core <- voom(seExpr_core, design_core)
+
+# perform VP analysis
+vp_core <- variancePartition::fitExtractVarPartModel(
+    vobj_core,
+    ~ 
+      scorad + easi_total_score +
+      (1|skin_type) + (1|subject) + (1|visit_quarter) + 
+      (1|gender) + (1|biopsy_area),
+    colData(se_core) %>% as_tibble()
+)
+vp_core_t <- 
+  vp_core %>% as_tibble(rownames = "gene_name")
+
+vp_core_t %>% saveRDS("data/vp_core_t.rds")
+
+# plot 1 - violin
+vp_core_p <- vp_core
+names(vp_core_p)[1] <- "anatomic region"
+names(vp_core_p)[3] <- "tissue type (LS/NL/HC)"
+names(vp_core_p)[4] <- "individual"
+names(vp_core_p)[5] <- "quarter"
+names(vp_core_p)[6] <- "SCORAD"
+names(vp_core_p)[7] <- "EASI"
+names(vp_core_p)[8] <- "residual"
+source("R/plot.R")
+vpcore_violin <-
+  plotVarPart_internal(vp_core_p) + 
+  theme(plot.margin = margin(.5, .5, .5, 2, "cm")) +
+  ylab("Var(%) explained")
+
+# plot 2 - cytokine dot plot
+cytokine_vp <- 
+  vp_core_t %>% 
+  filter(gene_name %>% str_detect("^IL\\d{1}|^TNF|EBI|IFN|OSMR"),
+         gene_name != "IL4I1") %>% 
+  arrange(-skin_type) %>% 
+  pivot_longer(cols = !gene_name, names_to = "term") %>% 
+  filter(term == "skin_type", value > .05) %>% 
+  mutate(var_explained = round(value * 100, 2))
+
+cytokine_vp_P <- ggpubr::ggdotchart(
+  cytokine_vp, x = "gene_name", y = "var_explained",
+  color = "#FC4E07",
+  xlab = "",
+  sorting = "descending",
+  rotate = TRUE, 
+  add = "segments",
+  ggtheme = ggpubr::theme_pubr(),
+  dot.size = 4,
+  ylab = "Var% explained by tissue type (LS/NL/HC)"
+)
+
+# plot 3 - top cytokine boxplot
+top_cytokine_FVE <-
+  c(
+  cytokine_vp %>% filter(term == "skin_type") %>% 
+  arrange(-var_explained) %>% slice_head(n = 6) %>% pull(gene_name) %>% 
+  discard(function(x){x == "IL4I1"}),
+  "UGT3A2", "TTC38", "CHRM4", "LINC01605"
+  )
+
+top_cytokine_boxplot <-
+  se[top_cytokine_FVE,] %>% as_tibble() %>% 
+  mutate(feature = .feature %>% forcats::fct_relevel(top_cytokine_FVE)) %>% 
+  ggboxplot(x = "skin_type", y = "counts_scaled", add = "jitter", 
+            facet.by = "feature", xlab = FALSE,
+            ylab = "counts", color = "skin_type", 
+            palette = c("LS" = "#eb2d0c", 
+                        "NL" = "#eb8b9b", 
+                        "HC" = "#91cf60"), 
+            legend.title = "",
+            font.legend = c(14), nrow = 2, yscale = "log10")
+  # stat_compare_means()
+
+# consolidate 3 plots
+vp_core_p <- 
+  ((vpcore_violin / top_cytokine_boxplot) | cytokine_vp_P)
+vp_core_p
+```
+
+### Figure 3
+```{r output figure 3a, eval=FALSE}
+ggsave("data/supplementary/figure_3.png", vp_core_p, 
+       width = 12 * 1.2, height = 8 * 1.2, 
+       dpi = "retina")
+```

@@ -1,0 +1,237 @@
+---
+title: "Transcriptome data cleaning, and curation"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load library}
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(tibble)
+library(SummarizedExperiment)
+library(tidybulk)
+library(tidySummarizedExperiment)
+```
+
+## Load mapped data
+
+```{r load data}
+# read raw counts 
+counts <-
+  data.table::fread("data/counts.txt.gz") %>% 
+  mutate(Chr = Chr %>% str_extract("chr\\w{1,}(?=;)|chr\\w{1,}$"), #keeps only 1
+         Strand = Strand %>% str_extract("\\+|\\-"),               #keeps only 1
+         Start = Start %>% str_extract("\\d{1,}(?=;)|\\d{1,}$"),   #keeps only 1
+         End = End %>% str_extract("\\d{1,}(?=;)|\\d{1,}$")) %>%   #keeps only 1
+  filter(!Geneid %>% 
+           str_detect("\\d{1,}P$|\\d{1,}P\\d{1,}$|\\.|-AS\\d{1}|-DT")) %>% # apply gene filtering (pseudo genes, antisense genese, DT genes)
+  dplyr::rename_with(str_extract, starts_with("/home/projects/"), pattern = "NG-[:graph:]{1,}$")
+
+# lib to merge -------------
+lib_id <- colnames(counts)[-1:-6] %>% str_extract("lib\\d{1,}") # extract lib id
+lib_id_t <- table(lib_id)
+lib_id_merge <- lib_id_t[(lib_id_t != 1)] %>% rownames() #lib_ids to be merged
+
+# merge technical replicates 
+source("R/helper.R")
+
+counttable_LibMerged <- 
+  bind_cols(counts[, 1:6], 
+            counttable_merge_library_fun(counts %>% dplyr::select(-1:-6), lib_id_merge)) 
+
+# clinical records 
+clinical_records <- 
+  readr::read_csv("data/metadata/LEO-AD-metadata.csv") %>% 
+  mutate(id = id %>% str_replace("-", "_"),
+         JOIN_ID = paste(id, paste0("0",visit_no), sep="_"))
+
+extensive_meta <-
+  readr::read_csv("data/metadata/RNAseq_sample_annotation(extensive).csv") %>% 
+  mutate(
+    skin_type_fitzpatrick_scale = skin_type_fitzpatrick_scale %>% as.factor()
+      )
+```
+
+## Construct Summarized Experiment object
+```{r SummarizedExperiment}
+# revised biopsy area by Tanja
+revised_biopsy_area <- 
+  readr::read_csv("data/metadata/tanja_replicate_location.csv") %>% 
+  mutate(biopsy_area = biopsy_area %>% str_replace_all(" ", "_"))
+
+# revise space infomation
+biopsy_area <- 
+  extensive_meta %>% 
+  select(BAM_ID, biopsy_area_old = biopsy_area) %>% 
+  left_join(revised_biopsy_area %>% select(BAM_ID, biopsy_area)) %>% 
+  mutate(biopsy_area = ifelse(is.na(biopsy_area), biopsy_area_old, biopsy_area)) %>% 
+  mutate(biopsy_area = ifelse(biopsy_area == "læg", "leg", biopsy_area)) %>% 
+  select(-biopsy_area_old) %>% 
+  add_case(BAM_ID = "NG-23830_01_AD_07_BI_LS_01_E9_lib390881_6751_1.bam",
+           biopsy_area = "arm")
+
+# se col_data
+col_data <-
+  tibble(
+    # definingn metadata --------------------------------------
+    BAM_ID = colnames(counttable_LibMerged)[-1:-6]) %>% 
+    mutate(sequencing_batch = BAM_ID %>% str_extract("NG-\\d{1,}"),
+           group = BAM_ID %>% str_extract("AD|CO") %>% 
+               forcats::fct_relevel(c("CO", "AD")),
+           subject = BAM_ID %>% str_extract("(AD|CO)_\\d{2,}"),
+           visit = BAM_ID %>% str_extract("\\d{2,}_(AD|CO)") %>% str_extract("\\d{2,}"),
+           skin_type = BAM_ID %>% str_replace("TS", "LS") %>% str_extract("NN|NL|LS") %>% forcats::fct_relevel(c("NN", "NL", "LS")),
+           replicate_ID = BAM_ID %>% str_replace("TS_BI", "BI_LS") %>% str_extract("(NN|NL|LS)_\\d{2,}") %>% str_extract("\\d{2,}"),
+           library_ID = BAM_ID %>% str_extract("lib\\d{1,}"),
+           sequencing_id = BAM_ID %>% str_extract("\\d{4}_(1|2)"),
+           JOIN_ID = base::paste(subject, visit, sep = "_")) %>%
+    left_join(clinical_records %>% select(id, gender) %>% filter(!is.na(gender)), by=c("subject"="id")) %>%
+    left_join(clinical_records %>% select(JOIN_ID, scorad, scorad_objective, easi_total_score, date_visit)) %>% 
+    select(-JOIN_ID) %>% 
+    mutate(gender = gender %>% forcats::fct_relevel(c("female", "male"))) %>% 
+    left_join(extensive_meta %>% select(BAM_ID, rna_quality, visit_quarter)) %>% 
+    left_join(biopsy_area)
+
+# Summarized Experiment--------------------
+se <- SummarizedExperiment::SummarizedExperiment(
+  assays = list(counts = counttable_LibMerged %>% select(-1:-6) %>% as.matrix),
+  colData = col_data
+)
+names(se) <- counttable_LibMerged$Geneid
+colData(se)$biopsy_area <- colData(se)$biopsy_area %>% 
+  str_extract("arm|back_of_knee|elbow|feet|hand|leg|wrist")
+colData(se) <- 
+  DataFrame(
+  colData(se) %>% 
+    as.data.frame() %>% 
+    mutate(skin_type = as.character(skin_type),
+           skin_type = ifelse(skin_type == "NN", "HC", skin_type),
+           skin_type = forcats::fct_relevel(skin_type, c("HC", "NL", "LS")))
+  )
+```
+
+```{r filtering}
+# filter out samples ----------------
+se <- se[, se$BAM_ID != (assay(se) %>% colSums() %>% which.min %>% names)] # 392
+se <- se[, !se$library_ID %in% c("lib390174", "lib390716")] # 390
+```
+
+## Data curation
+
+### Reannotation
+
+```{r reannotate some sample info}
+index_ad03v01ls01 <-
+  which(colData(se)$library_ID == "lib390797")
+colData(se)$skin_type[index_ad03v01ls01] <- "NL"
+
+index_ad03v01nl01 <-
+  which(colData(se)$library_ID == "lib390169")
+colData(se)$skin_type[index_ad03v01nl01] <- "LS"
+
+index_ad13v03nl01 <-
+  which(colData(se)$library_ID == "lib390877")
+colData(se)$visit[index_ad13v03nl01] <- "05"
+colData(se)$skin_type[index_ad13v03nl01] <- "LS"
+colData(se)$replicate_ID[index_ad13v03nl01] <- "02"
+
+index_ad13v05ls02 <-
+  which(colData(se)$library_ID == "lib390170")
+colData(se)$visit[index_ad13v05ls02] <- "03"
+colData(se)$skin_type[index_ad13v05ls02] <- "NL"
+colData(se)$replicate_ID[index_ad13v05ls02] <- "01"
+```
+
+### Sample QC record (by me and Thomas)
+```{r Sample QC}
+sample_qc_record_edited <-
+  readr::read_csv("data/metadata/sample_qc_record.csv") %>% 
+  mutate(skin_type = ifelse(skin_type == "NN", "HC", skin_type))
+```
+
+#### Filter samples
+```{r}
+sample_qc_record_edited %>% 
+  filter(exclude == TRUE) %>% 
+  group_by(skin_type) %>% summarise(n = n())
+```
+
+```{r}
+sample_qc_record_rna_conc <- 
+  sample_qc_record_edited %>%
+  left_join(
+    list.files("data/metadata/qc_record/", full.names = T) %>% 
+    lapply(readxl::read_excel) %>% purrr::reduce(bind_rows) %>% 
+    mutate(subject = `Customer Sample Name` %>% str_extract("(AD|CO)_\\d{2}"),
+           visit = `Customer Sample Name` %>% str_extract("^\\d{2}"),
+           skin_type = `Customer Sample Name` %>% str_extract("(LS|NL|NN)"),
+           replicate_ID = `Customer Sample Name` %>% str_extract("(?<=(LS|NL|NN)_)(01|02)(?=_)"))
+                     ) %>% 
+      select(subject, visit, skin_type, replicate_ID, `FA Concentration [ng/ul]`)
+
+```
+
+```{r exclude}
+exclude_BAM <- 
+  colData(se) %>% as_tibble() %>% 
+  dplyr::select(BAM_ID, subject, visit, skin_type, replicate_ID) %>%
+  left_join(sample_qc_record_edited) %>% 
+  filter(exclude == TRUE) %>% pull(BAM_ID)
+```
+
+
+```{r generate new se}
+se <- se[, !se$BAM_ID %in% exclude_BAM]
+
+g_non_pseudo <- 
+  rownames(se) %>% 
+  gprofiler2::gconvert() %>% 
+  filter(!description %>% str_detect("pseudogene")) %>% 
+  pull(input) %>% unique()
+
+se <-
+  se[g_non_pseudo,]
+
+# make a cope of a non-filtered se
+se_prefilt <- se
+
+# filter out genes 
+se <- 
+  se_prefilt %>% 
+  keep_abundant(minimum_counts = 3,
+                minimum_proportion = 0.2) %>% 
+  scale_abundance()
+```
+
+```{r generate KRTAP}
+se_KRTAP <- se_prefilt %>% 
+  keep_abundant(factor_of_interest = skin_type, minimum_proportion = .1) %>%
+  scale_abundance()
+```
+
+```{r KRTAP variance}
+KRTAP_hair <-
+  se_KRTAP %>% 
+  filter(.feature %>% str_detect("KRTAP")) %>% 
+  group_by(.feature) %>% 
+  summarise(mean_expr = mean(counts), 
+            sd_expr = sd(counts)) %>%   
+  mutate(expr = ifelse(mean_expr >= 10, TRUE, FALSE))
+
+se_KRTAP_filt <- 
+  se_KRTAP %>% 
+  filter(.feature %in% (KRTAP_hair %>% filter(expr == TRUE) %>% pull(.feature)))
+```
+
+## Save data
+```{r write out data, eval=FALSE}
+readr::write_rds(se_prefilt, "data/se_prefilt.rds")
+readr::write_rds(se, "data/se.rds")
+readr::write_rds(se_KRTAP_filt, "data/se_krtap_all24.rds")
+```

@@ -1,0 +1,318 @@
+---
+title: "Figure 2 (Across-study functional enrichment analysis)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+library(fgsea)
+library(tibble)
+library(ggplot2)
+```
+
+```{r dge result}
+gse107361 <- 
+  readr::read_rds("data/ext/dge_gse107361.rds") %>% # adult vs children
+  mutate(dge_result = purrr::map(dge_result, unnest))
+gse120721 <- readr::read_rds("data/ext/dge_gse120721.rds") # LSM
+gse121212 <- readr::read_rds("data/ext/dge_gse121212.rds")
+ChronicvsAcute <- readr::read_rds("data/ext/dge_AcutevsChronic.rds")
+de_v1_full <- readr::read_rds("data/de_v1_full.rds")
+
+dge_result <-
+  tibble(
+    project = c(rep("multi-omics",length(de_v1_full)), 
+                rep("gse121212",nrow(gse121212)),
+                rep("gse107361",nrow(gse107361)),
+                rep("gse120721",nrow(gse120721)),
+                rep("acute_chronic", nrow(ChronicvsAcute))),
+    contrast = c(de_v1_full %>% names %>% str_remove("de_v1_"), 
+                 gse121212$contrast, 
+                 gse107361$contrast,
+                 gse120721$contrast,
+                 ChronicvsAcute$contrast),
+    dge_result = c(de_v1_full, 
+                   gse121212$res_shrink,
+                   gse107361$dge_result,
+                   gse120721$dge_result,
+                   ChronicvsAcute$data))
+```
+
+## Prepare reference gene set data
+```{r prepare gene set, cache=TRUE}
+# prepare gs --------------
+gs <- 
+  tibble(gs_name = c("CP:REACTOME", 
+                     "TFT:GTRD", 
+                     "GO:BP", 
+                     "GO:MF")) %>% 
+  mutate(gs_list = map(gs_name, function(subcat){
+  gs_df <- msigdbr::msigdbr(species = "Homo sapiens", 
+                            subcategory = subcat) %>% 
+    group_by(gs_name) %>% tidyr::nest() %>% 
+    mutate(gene_id = purrr::map(data, ~ .x %>% pull(gene_symbol))) %>% select(-data)
+  gs_list <- gs_df$gene_id
+  names(gs_list) <- gs_df$gs_name
+  return(gs_list)
+}))
+```
+
+```{r fgsea, cache=TRUE}
+gsea_exp <- 
+  expand.grid(contrast = dge_result$contrast,
+              gs_name = gs$gs_name) %>% 
+  left_join(dge_result, by = "contrast") %>% 
+  left_join(gs, by = "gs_name") %>% 
+  mutate(rank = map2(dge_result, gs_name,
+                     function(dge_result, gs_name){
+                       p_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB", 
+                                                         "TFT:GTRD"),
+                                          1, # .05
+                                          1)
+                       log2fc_cutoff <- ifelse(gs_name %in% c("MIR:MIRDB",
+                                                              "TFT:GTRD"),
+                                               0, # 1
+                                               0)
+                       dge_result %>% 
+                         mutate(rank = log2FoldChange) %>% 
+                         filter(padj < p_cutoff, abs(log2FoldChange) > log2fc_cutoff) %>% 
+                         select(gene_name, rank) %>% deframe}),
+         gse_res = map2(rank, gs_list,
+                            function(rank, gs_list){
+                              gsa_stat <- fgsea::fgsea(pathways = gs_list, 
+                                                       stats    = rank,
+                                                       minSize  = 8,
+                                                       maxSize  = 500, 
+                                                       eps = 0,
+                                                       nPermSimple = 10000) %>% 
+                            as_tibble()
+}))
+
+gsea_res <- gsea_exp %>% select(contrast, gs_name, project, gse_res) %>% unnest()
+
+```
+
+```{r eval=FALSE}
+gsea_res %>% saveRDS("data/gsea_res_FIVE_nocutoff.rds")
+```
+
+
+```{r gsea split}
+gsea_res <- 
+  gsea_res %>% 
+  mutate(contrast = contrast %>% str_remove("de_v1_")) %>% 
+  filter(gs_name %in% c("CP:REACTOME", 
+                        "TFT:GTRD", 
+                        "GO:BP", 
+                        "GO:MF"))
+```
+
+### Table S3
+
+```{r appendix}
+gsea_res_ex_filt <- 
+  gsea_res %>% filter(padj < .05, !contrast %>% stringr::str_detect("PSO"))
+
+gsea_res_ex_n <- 
+  gsea_res_ex_filt %>% 
+  group_by(pathway) %>% 
+  summarise(n = n())
+
+gsea_res_ex_appendix_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  select(contrast, pathway, NES) %>% pivot_wider(names_from = contrast, values_from = NES) %>% 
+  left_join(gsea_res_ex_n, by = "pathway") %>% arrange(-n) %>% 
+  select(pathway, 
+         n,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721"))
+# saveRDS(gsea_res_ex_appendix_w, "data/gsea_appendix.rds")
+
+gsea_res_ex_filt_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  group_by(gs_name) %>% nest() %>% 
+  mutate(data = map(data, 
+                    ~ .x %>% 
+                      select(contrast, pathway, NES) %>% 
+                      pivot_wider(names_from = contrast, values_from = NES) %>% 
+                      left_join(gsea_res_ex_n, by = "pathway") %>% 
+                      arrange(-n) %>% 
+                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                                          pathway,
+                                          ".html")) %>% 
+  select(pathway,
+         n,
+         url,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721")) 
+  ))
+
+gsea_res_ex_filt_p_value_w <-
+  gsea_res_ex_filt %>% mutate(contrast = paste(project, contrast)) %>% 
+  group_by(gs_name) %>% nest() %>% 
+  mutate(data = map(data, 
+                    ~ .x %>% 
+                      select(contrast, pathway, padj) %>% 
+                      pivot_wider(names_from = contrast, values_from = padj) %>% 
+                      left_join(gsea_res_ex_n, by = "pathway") %>% 
+                      arrange(-n) %>% 
+                      mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                                          pathway,
+                                          ".html")) %>% 
+  select(pathway,
+         n,
+         url,
+         contains("multi-omics"), 
+         contains("gse121212"), 
+         contains("acute_chronic"),
+         contains("gse107361"), 
+         contains("gse120721")) 
+  ))
+
+
+gsea_xlsx <- c(gsea_res_ex_filt_w$data,
+                  gsea_res_ex_filt_p_value_w$data)
+
+names(gsea_xlsx) <- 
+  c(gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_NES"),
+    gsea_res_ex_filt_w$gs_name %>% str_replace(":", "_") %>% str_c("_padj"))
+
+gsea_xlsx %>% openxlsx::write.xlsx("data/supplementary/table_s3_gsea_res.xlsx", overwrite = T)
+```
+
+### Figure 2
+```{r gsea-vis}
+# gene set ad related
+gs_ad <- gsea_res_ex_filt %>% filter(pathway %in% c("REACTOME_CHEMOKINE_RECEPTORS_BIND_CHEMOKINES",
+                                                    "REACTOME_INTERFERON_SIGNALING",
+                                                    "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
+                                                    "GOBP_INFLAMMATORY_RESPONSE",
+                                                    "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING", # IL4&13
+                                                    "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING", # IL12
+                                                    "REACTOME_INTERLEUKIN_1_FAMILY_SIGNALING", # IL1
+                                                    "REACTOME_INTERLEUKIN_10_SIGNALING",
+                                                    "REACTOME_INTERLEUKIN_20_FAMILY_SIGNALING",
+                                                    # "REACTOME_INTERLEUKIN_17_SIGNALING",
+                                                    "GOBP_T_CELL_ACTIVATION",
+                                                    "GOBP_T_CELL_PROLIFERATION",
+                                                    "GOBP_KERATINOCYTE_DIFFERENTIATION",
+                                                    "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS",
+                                                    "GOBP_CHRONIC_INFLAMMATORY_RESPONSE",
+                                                    "GOBP_POSITIVE_REGULATION_OF_MACROPHAGE_ACTIVATION",
+                                                    "GOBP_EOSINOPHIL_MIGRATION",
+                                                    "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") & padj < .05
+                               # pathway %>% str_detect("REACTOME_INTERLEUKIN") & padj < .05
+                             ) %>% pull(pathway) %>% unique()
+
+gs_r <- 
+  gsea_res %>% 
+  filter(
+    (gs_name %in% c("TFT:GTRD") & padj < .05 & 
+       project == "multi-omics")) %>% pull(pathway) %>% unique()
+
+gsea_res_filt <-
+  gsea_res %>% filter(pathway %in% c(gs_r, gs_ad)) %>% mutate(`-log10p` = -log10(padj)) %>% 
+  group_by(pathway, gs_name) %>% nest() %>% 
+  mutate(url = paste0("https://www.gsea-msigdb.org/gsea/msigdb/cards/",
+                      pathway,
+                      ".html"),
+         des = map_chr(url, 
+                   function(url){
+                     url %>% xml2::read_html() %>% 
+                       rvest::html_node(css = "tr:nth-child(3) td") %>%
+                       rvest::html_text()}),
+         des = ifelse(gs_name == "GO:BP", # add description
+                      pathway %>% str_remove("GOBP") %>% str_replace_all("_", " ") %>% str_to_sentence(), 
+                      des),
+         des = ifelse(gs_name %in% c("MIR:MIRDB", "TFT:GTRD"),
+                      pathway %>% str_replace("_TARGET_GENES", " target genes"),
+                      des)) %>% 
+  unnest() %>% 
+  mutate(contrast = case_when(
+           contrast == "AD-LSvsAD-NL" ~ "LSvsNL",
+           contrast == "AD-LSvsCO" ~ "LSvsHC",
+           contrast == "AD-NLvsCO" ~ "NLvsHC",
+           contrast == "LSvsNN" ~ "LSvsHC",
+           contrast == "NLvsNN" ~ "NLvsHC",
+           contrast == "Adult_LSvsAdult_NL" ~ "Adult_LSvsNL",
+           contrast == "Adult_NNvsChildren_NN" ~ "Adult_HCvsChildren_HC",
+           contrast == "Children_LSvsChildren_NL" ~ "Children_LSvsNL",
+           contrast == "LS/NL_derm" ~ "LSvsNL_dermis",
+           contrast == "LS/NL_epi" ~ "LSvsNL_epidermis",
+           contrast == "LS/NL_FT" ~ "LSvsNL_full tissue",
+           TRUE ~ contrast)) 
+
+
+gsea_ad_p <-
+  gsea_res_filt %>% filter(pathway %in% gs_ad, 
+                           !contrast %>% str_detect("PSO"),
+                           padj < .05,
+                           !contrast %in% c("Adult_LSvsAdult_NN",
+                                            "Adult_NLvsAdult_NN",
+                                            "Adult_NLvsAdult_NN",
+                                            "Children_NLvsChildren_NN",
+                                            "Children_LSvsChildren_NN",
+                                            "Adult_LSvsChildren_LS",
+                                            "Adult_NLvsChildren_NL",
+                                            "Adult_HCvsChildren_HC",
+                                            "LS/NN_derm",
+                                            "LS/NN_epi",
+                                            "LS/NN_FT",
+                                            "NL/NN_derm",
+                                            "NL/NN_FT")) %>% 
+  mutate(
+    project = case_when(project == "multi-omics" ~ "GENAD",
+                        project == "acute_chronic" ~ "Acute vs. Chronic",
+                        TRUE ~ toupper(project)),
+    # project = ifelse(project == "multi-omics", "GENAD", project),
+    project = factor(project, levels = c("GSE121212",
+                                         "Acute vs. Chronic",
+                                         "GSE107361",
+                                         "GSE120721",
+                                         "GENAD")),
+    des = des %>% str_replace_all("interleukin|Interleukin", "IL"),
+    cat = case_when(
+    pathway %in% c("PID_IL23_PATHWAY",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+                   "REACTOME_INTERLEUKIN_10_SIGNALING",
+                   "REACTOME_INTERLEUKIN_4_AND_INTERLEUKIN_13_SIGNALING",
+                   "REACTOME_INTERLEUKIN_12_FAMILY_SIGNALING",
+                   "WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                   "KEGG_JAK_STAT_SIGNALING_PATHWAY") ~ "signal transduction",
+    pathway %in% c("GOBP_KERATINOCYTE_DIFFERENTIATION",
+                   "GOBP_NEUTRAL_LIPID_BIOSYNTHETIC_PROCESS", "REACTOME_DEFENSINS",
+                   "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM") ~ "skin barrier",
+    pathway %in% c("KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+                   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+                   "GOBP_INFLAMMATORY_RESPONSE",
+                   "GOBP_T_CELL_ACTIVATION",
+                   "GOBP_T_CELL_PROLIFERATION",
+                   "GOBP_CHRONIC_INFLAMMATORY_RESPONSE") ~ "immune response",
+    TRUE ~ "signal transduction")) %>% 
+  ggplot(aes(contrast, des, size = `-log10p`, color = NES)) + 
+  geom_point() +
+  scale_size_area(max_size = 8) + 
+  scale_color_gradient2(low="blue", mid = "white", high="red") +
+  theme_bw() +
+  facet_grid(cat~project, scales = "free", space = "free") +
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 35, hjust = 1))
+
+gsea_ad_p
+```
+
+```{r output figure 2, eval=FALSE}
+ggsave("data/supplementary/figure_2.png", gsea_ad_p, width = 10.5, height = 7)
+```

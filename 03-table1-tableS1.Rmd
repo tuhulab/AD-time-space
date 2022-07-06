@@ -1,0 +1,248 @@
+---
+title: "Table 1. Baseline characteristics"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(tibble)
+```
+
+## Baseline characteristics (Table 1)
+
+### Load and clean data
+```{r baseline-statistics-table}
+extensive_meta <- 
+  readr::read_csv("data/metadata/RNAseq_sample_annotation(extensive).csv") 
+
+baseline_data <-  
+  extensive_meta %>% filter(visit == "01") %>% 
+  select(subject, 
+         group, 
+         # t test
+         age, 
+         bmi, 
+         contains("blood"),
+         # fisher's exact test
+         gender, 
+         smoker,
+         smoker_ever,
+         animal,
+         family_eczema,
+         family_atopy,
+         other_atopy,
+         other_diagnoses,
+         prick_test_result,
+         # Mann-Whitney-Wilcoxon Test
+         education,
+         drinks_per_week,
+         skin_type_fitzpatrick_scale,
+         grow_up_where,
+         # NOT FOR COMPARISON
+         easi_total_score, scorad, 
+         scorad_objective) %>% 
+  distinct() %>% 
+  mutate(ige_150h = ifelse(blood_ige > 150, TRUE, FALSE),
+         gender_female = ifelse(gender == "female", T, F),
+         family_eczema = ifelse(family_eczema == "-", 
+                                F,
+                                family_eczema),
+         family_eczema = as.logical(family_eczema),
+         other_atopy = ifelse(other_atopy == "-",
+                              F,
+                              other_atopy),
+         other_atopy = as.logical(other_atopy),
+         prick_test_result = case_when(prick_test_result == "POS" ~ TRUE,
+                                       prick_test_result == "NEG" ~ FALSE,
+                                       TRUE ~ NA),
+         education = ifelse(education == "meidium_higher_education",
+                            "medium_higher_education",
+                            education),
+         education = case_when(education == "primary_school" ~ 0,
+                               education == "high_school" ~ 1,
+                               education == "short_higher_education" ~ 2,
+                               education == "medium_higher_education" ~ 3,
+                               education == "long_higher_education" ~ 4),
+         drinks_per_week = case_when(drinks_per_week == "0" ~ 0,
+                                     drinks_per_week == "1_7" ~ 1,
+                                     drinks_per_week == "7_14" ~ 2,
+                                     drinks_per_week == "15_" ~ 3))
+```
+
+### Mann-Whitney-Wilcoxon Test
+```{r}
+# Mann-Whitney-Wilcoxon Test
+wilcox_test_d <-
+  baseline_data %>% 
+  select(subject, group, 
+         education, skin_type_fitzpatrick_scale, drinks_per_week) %>% 
+  pivot_longer(cols = c("education", "skin_type_fitzpatrick_scale", "drinks_per_week"),
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(p_value = map_dbl(data, function(data){
+    CO <- data %>% filter(group == "CO")
+    AD <- data %>% filter(group == "AD")
+    wilcox.test(CO$value, AD$value, exact = F)$p.value
+  }))
+```
+
+### T test
+```{r}
+# t test
+t_test_d <- 
+  baseline_data %>% 
+  select(subject, group, contains("blood"), age, bmi) %>% 
+  pivot_longer(cols = !c("subject", "group"), 
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(p_value = map(data, function(data){
+    CO <- data %>% filter(group == "CO")
+    AD <- data %>% filter(group == "AD")
+    t.test(CO$value, AD$value, na.rm = T)$p.value
+  }))
+```
+
+### Fisher's exact test
+```{r}
+# fisher's exact test
+fisher_test_d <-
+  baseline_data %>% 
+  select(subject, group, gender_female, smoker, smoker_ever,
+         animal, family_eczema, family_atopy, 
+         other_atopy, other_diagnoses,
+         prick_test_result) %>% 
+  pivot_longer(cols = !c("subject", "group"),
+               names_to = "parameter") %>% 
+  group_by(parameter) %>% nest() %>% 
+  mutate(
+    AD = map_dbl(data, function(data){
+      data %>% filter(group == "AD", value == TRUE) %>% nrow()
+    }),
+    CO = map_dbl(data, function(data){
+      data %>% filter(group == "CO", value == TRUE) %>% nrow()
+    }),
+    p_value = map_dbl(data, function(data){
+      test <- data %>% select(-subject) %>% table %>% fisher.test()
+      test$p.value
+      })
+    )
+```
+
+### Collect statistics together
+```{r}
+clinic_summary <- 
+ baseline_data %>% select(-subject) %>% group_by(group) %>% 
+  summarize(no_subject = n(),
+            female_percent = mean(gender == "female") * 100,
+            age_mean = mean(age), age_sd = sd(age), 
+            bmi_mean = mean(bmi), bmi_sd = sd(bmi), 
+            blood_ige_mean = mean(blood_ige, na.rm = TRUE), blood_ige_sd = sd(blood_ige, na.rm = TRUE),
+            blood_leukocyte_mean = mean(blood_leukocyte, na.rm=T), 
+            blood_leukocyte_sd = sd(blood_leukocyte, na.rm=T),
+            blood_lymphocyte_mean = mean(blood_lymphocyte, na.rm=T), 
+            blood_lymphocyte_sd = sd(blood_lymphocyte, na.rm=T),
+            blood_monocyte_mean = mean(blood_monocyte, na.rm=T),
+            blood_monocyte_sd = sd(blood_monocyte, na.rm=T),
+            blood_neutrophil_mean = mean(blood_neutrophil, na.rm = T),
+            blood_neutrophil_sd = sd(blood_neutrophil, na.rm = T),
+            blood_eosinophil_mean = mean(blood_eosinophil, na.rm = T),
+            blood_eosinophil_sd = sd(blood_eosinophil, na.rm = T),
+            blood_basophil_mean = mean(blood_basophil, na.rm = T),
+            blood_basophil_sd = sd(blood_basophil, na.rm = T),
+            easi_mean = mean(easi_total_score), easi_sd = sd(easi_total_score), 
+            scorad_mean = mean(scorad, na.rm = TRUE), scorad_sd = sd(scorad, na.rm = TRUE),
+            oscorad_mean = mean(scorad_objective, na.rm = TRUE), 
+            oscorad_sd = sd(scorad_objective, na.rm = TRUE),
+            ige_mean = mean(blood_ige, na.rm = TRUE), 
+            ige_sd = sd(blood_ige, na.rm = TRUE),
+            ige_median = median(blood_ige, na.rm = TRUE),
+            ige_150h = sum(blood_ige > 150, na.rm = TRUE))
+
+p_value <- 
+  tibble(
+    `Female%` = baseline_data %>% select(gender, group) %>% 
+      table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    `Blood_Ige > 150` = baseline_data %>% select(group, ige_150h) %>% 
+      table %>% fisher.test() %>% broom::tidy() %>% pull(p.value),
+    age = t.test(x = baseline_data %>% filter(group == "AD") %>% select(age),
+                 y = baseline_data %>% filter(group == "CO") %>% select(age))$p.value,
+    bmi = t.test(x = baseline_data %>% filter(group == "AD") %>% select(bmi),
+                 y = baseline_data %>% filter(group == "CO") %>% select(bmi))$p.value,
+    `blood_ige` = t.test(x = baseline_data %>% filter(group == "AD") %>% select(blood_ige),
+                         y = baseline_data %>% filter(group == "CO") %>% select(blood_ige))$p.value) %>% 
+  mutate_all(round, digits = 2) %>% mutate_all(as.character)
+
+clinic_summary_t <-
+  clinic_summary %>% 
+  mutate(group = paste0(group, " (n=", no_subject,")"),
+         `Female%` = female_percent %>% round(),
+         age = paste(age_mean %>% round(1) , "±", age_sd %>% round(1)),
+         bmi = paste(bmi_mean %>% round(1) , "±", bmi_sd %>% round(1)),
+         blood_ige = paste(blood_ige_mean %>% round(1) , "±", blood_ige_sd %>% round(1)),
+         `Blood_Ige > 150` = round(ige_150h / no_subject, 2) * 100,
+         easi = paste(easi_mean %>% round(1) , "±", easi_sd %>% round(1)),
+         scorad = paste(scorad_mean %>% round(1) , "±", scorad_sd %>% round(1)),
+         oscorad = paste(oscorad_mean %>% round(1) , "±", oscorad_sd %>% round(1))) %>%
+  select(group, `Female%`:oscorad) %>%
+  column_to_rownames("group") %>% mutate_all(as.character) %>% 
+  add_row(tibble_row(p_value)) %>% 
+  t()
+
+colnames(clinic_summary_t)[3] <- "p-value"
+clinic_summary_t[6:8, 2:3] <- " / "
+rownames(clinic_summary_t)[1] <- "Female(%)"
+rownames(clinic_summary_t)[2] <- "Age"
+rownames(clinic_summary_t)[3] <- "BMI"
+rownames(clinic_summary_t)[4] <- "Blood IgE"
+rownames(clinic_summary_t)[5] <- "Blood IgE>150(%)"
+rownames(clinic_summary_t)[6] <- "EASI"
+rownames(clinic_summary_t)[7] <- "SCORAD"
+rownames(clinic_summary_t)[8] <- "oSCORAD"
+colnames(clinic_summary_t)[2] <- "HC (n=30)"
+```
+
+```{r}
+knitr::kable(clinic_summary_t, 
+             format = "html", 
+             caption = "Baseline characteristics of AD and HC group") %>% 
+  kableExtra::add_footnote("Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 150 (%) were tested by Fisher's exact test.")
+```
+
+```{r}
+clinic_summary_t_xlsx <- clinic_summary_t %>% as_tibble(rownames = " ")
+clinic_summary_t_xlsx[9,1] <- "notes: Age, bmi, and blood IgE were tested by t test. Gender and blood IgE > 200 (%) were tested by Fisher's exact test."
+```
+
+
+## Table S1 (sample and subject metadata)
+
+### Subject metadata
+```{r output table S1, eval=FALSE}
+table_s1 <- extensive_meta %>% 
+  filter(visit == "01") %>% 
+  select(subject, gender, 
+         visit, visit_quarter, age, bmi, 
+         smoker, 
+         drinks_per_week, 
+         prick_test_result,
+         skin_type_fitzpatrick_scale,
+         age_onset, 
+         other_atopic_disease = other_atopy, 
+         family_atopic_dermatitis = family_eczema, 
+         family_atopic_disease = family_atopy, 
+         education,
+         animal, 
+         contains("scorad"), contains("easi")) %>% 
+  mutate(age = age %>% round(1),
+         bmi = bmi %>% round(2)) %>% 
+  arrange(subject, visit) %>% distinct()
+openxlsx::write.xlsx(table_s1, "data/supplementary/table_s1.xlsx", overwrite = T)
+```
+
+### Sample metadata
+Sample metadata was manually imported to the Excel sheet.

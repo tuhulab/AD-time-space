@@ -1,0 +1,95 @@
+---
+title: "Figure S5 (Time fluctuation of disease severity)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+# Disease severity change
+### Figure S6
+```{r}
+extensive_meta <- 
+  readr::read_csv("data/metadata/RNAseq_sample_annotation(extensive).csv")
+
+time_course_ad_subject <- 
+  extensive_meta %>% filter(visit == "02", group == "AD") %>% pull(subject) %>% unique
+
+disease_severity <- extensive_meta %>% 
+  dplyr::filter(subject %in% time_course_ad_subject) %>% 
+  dplyr::select(-skin_type) %>% 
+  distinct() %>% 
+  dplyr::select(visit, visit_quarter, subject, 
+                easi_total_score, scorad_objective, scorad) %>% 
+  tidyr::pivot_longer(cols = c("easi_total_score",
+                               "scorad_objective",
+                               "scorad"), 
+                      names_to = "disease_severity") %>% 
+  filter(subject != "AD_11") %>% 
+  mutate(disease_severity = 
+            case_when(disease_severity == "easi_total_score" ~ "EASI",
+                      disease_severity == "scorad" ~ "SCORAD",
+                      disease_severity == "scorad_objective" ~ "oSCORAD"),
+         disease_severity = forcats::fct_relevel(disease_severity,
+                                                 c("EASI", 
+                                                   "SCORAD",
+                                                   "oSCORAD")),
+         visit = visit %>% as.character(),
+         visit_quarter = visit_quarter %>% as.character())
+
+
+```
+
+```{r}
+disease_severity_natural_year <- extensive_meta %>% 
+  dplyr::filter(subject %in% time_course_ad_subject) %>% 
+  dplyr::select(-skin_type) %>% 
+  distinct() %>% 
+  mutate(year = date_visit %>% format("%Y"),
+         year_quarter = paste0(year, visit_quarter)) %>% 
+  dplyr::select(visit, visit_quarter, year_quarter, subject, 
+                easi_total_score, scorad_objective, scorad) %>% 
+  tidyr::pivot_longer(cols = c("easi_total_score",
+                               "scorad_objective",
+                               "scorad"), 
+                      names_to = "disease_severity") %>% 
+  filter(subject != "AD_11") %>% 
+  mutate(disease_severity = 
+            case_when(disease_severity == "easi_total_score" ~ "EASI",
+                      disease_severity == "scorad" ~ "SCORAD",
+                      disease_severity == "scorad_objective" ~ "oSCORAD"),
+         disease_severity = forcats::fct_relevel(disease_severity,
+                                                 c("EASI", 
+                                                   "SCORAD",
+                                                   "oSCORAD")),
+         visit = visit %>% as.character(),
+         visit_quarter = visit_quarter %>% as.character())
+
+disease_severity_natural_year_summary <- 
+  disease_severity_natural_year %>% group_by(year_quarter, disease_severity) %>% summarise(value =mean(value)) %>% 
+  mutate(subject = "mean")
+
+disease_severity_natural_year_g <-
+  disease_severity_natural_year %>% 
+  ggplot(aes(year_quarter, value, group = subject, color = subject)) +
+  geom_point(alpha = .3) + 
+  geom_line(alpha = .3) + 
+  # geom_line(data = disease_severity_natural_year_summary, size = 2) +
+  facet_grid(disease_severity ~ ., scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Time") +
+  theme_classic() +
+  theme(axis.title.y =  element_blank())
+```
+
+```{r eval=FALSE}
+ggsave("data/supplementary/figure_s7.png", 
+       disease_severity_natural_year_g)
+```
+

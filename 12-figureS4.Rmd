@@ -1,9 +1,13 @@
 ---
-title: "03-IntraIndiv Variation"
+title: "Figure S4 (Intraindividual variation)"
 author: "Tu Hu"
-date: "01/07/2022"
+date: "06/07/2022"
 output: html_document
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
 ## Investigate genes showing high intra-individual variation
 
@@ -20,11 +24,7 @@ register(MulticoreParam(20))
 
 ### Load data
 ```{r}
-se <- 
-  readRDS("data/se.rds") %>% 
-  keep_abundant(minimum_counts = 5, 
-                minimum_proportion = 0)
-
+se <- readRDS("data/se_prefilt.rds") %>% scale_abundance()
 ```
 
 ### Intra Indiv Variation Index
@@ -72,15 +72,12 @@ IntraIndivIndexCalc <- function(index){
 ```
 
 
-```{r }
+```{r}
 IntraIndivIndex <-
   runonce::save_run(
     suppressMessages(bplapply(1:nrow(se), IntraIndivIndexCalc)),
   "data/IntraIndivIndex.rds"
   )
-
-IntraIndivIndex_t <- 
-  IntraIndivIndex %>% purrr::reduce(bind_rows)
 
 IntraIndivIndex_t <- 
   do.call(rbind.data.frame, IntraIndivIndex)
@@ -128,19 +125,13 @@ g_high_indiv_var_g <-
   theme_classic() +
   xlab("Biological replicate") +
   ylab("Gene expression")
-
-ggsave("figure/figure_s4b.png", 
-       g_high_indiv_var_g, 
-       width = 7 , height = 6 , dpi = 600)
 ```
 
-
-
-
-
-
-
-
+```{r}
+ggsave("figure/figure_s4b.png",
+       g_high_indiv_var_g,
+       width = 7 , height = 6 , dpi = 600)
+```
 
 
 

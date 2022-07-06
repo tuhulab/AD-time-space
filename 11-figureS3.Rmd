@@ -1,0 +1,251 @@
+---
+title: "Figure S3 (Time variation)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(SummarizedExperiment)
+library(tidySummarizedExperiment)
+library(ggplot2)
+library(enrichR)
+setEnrichrSite("Enrichr")
+```
+
+## Time effect - stepwise DGE analysis
+
+```{r load and clean data}
+se <- readr::read_rds("data/se.rds")
+se <- se[,!is.na(se$visit_quarter)]
+```
+
+### Time stability (dge_tstat)
+
+```{r dge_time_alone, eval=FALSE}
+dge_tstat_design <-
+  expand_grid(
+  skin_type = colData(se)$skin_type %>% unique,
+  t = c("visit", "visit_quarter")
+  ) %>% 
+  mutate(name = paste(skin_type, t, sep = "_"))
+  
+dge_tstat_result <-
+  plyr::llply(1:nrow(dge_tstat_design), function(index){
+    se <- se[,se$skin_type == dge_tstat_design$skin_type[index]]
+    f <- paste("~", dge_tstat_design$t[index])
+    deseq <- DESeqDataSet(se, design = as.formula(f))
+    deseq <- DESeq(deseq, test = "LRT", reduced = ~ 1, 
+                   parallel = T, 
+                   BPPARAM = MulticoreParam(min(detectCores() - 2, 8)))
+    deseq <- results(deseq)
+    deseq <- as_tibble(deseq, rownames = "gene_name") %>% 
+      mutate(name = dge_tstat_design$name[[index]])
+  }, .progress = "text")
+# saveRDS(dge_tstat_result, "data/dge_tstat_result.rds")
+# dge_tstat_result <- readr::read_rds("data/dge_tstat_result.rds")
+
+dge_tstat_result_filt <-
+  map_dfr(dge_tstat_result,
+           ~ filter(.x, padj < .05, 
+                    abs(log2FoldChange) > 1)) 
+
+
+dge_tstat_result_filt_n <- 
+  dge_tstat_result_filt %>% group_by(name) %>% nest() %>% 
+  mutate(gene_name = map(data, ~ pull(.x, gene_name)),
+         enrichment = map(gene_name, ~ enrichr(., c("Reactome_2016"))))
+
+dge_tstat_g <- dge_tstat_result_filt$gene_name %>% unique
+dbs <- c("Human_Gene_Atlas", "ARCHS4_Tissues")
+enriched_dge_tstat <- enrichr(dge_tstat_g, dbs)
+
+adipocyte <- 
+  map2_dfr(enriched_dge_tstat, dbs, 
+         ~ .x %>% mutate(name = .y) %>% 
+           filter(Adjusted.P.value < .05))
+```
+
+### adipocytes
+```{r}
+se_adipocyte <- 
+  se[c("CIDEC",    # CIDEC cell death inducing DFFA like effector c
+       "FABP4",    # FABP4 fatty acid binding protein 4
+       "PLIN4"),]  # perilipin 4
+
+se_adipocyte %>% as_tibble() %>% 
+  # group_by(sample, feature) %>% 
+  # summarise(sum_count = sum(counts_scaled + .5) %>% log2()) %>% 
+  ggplot(aes(log2(counts_scaled + .1))) + 
+  facet_grid(feature~.) +
+  geom_histogram()
+```
+```{r}
+se_adipocyte %>% as_tibble() %>% 
+  ggplot(aes(skin_type, counts_scaled)) + 
+  facet_grid(~feature) +
+  geom_boxplot()
+```
+
+### Disease signature stability
+```{r load dge-time}
+dge_time <- 
+  readr::read_rds("data/dge_time.rds")
+
+names(dge_time)[1:2] <- 
+  c("DGE_condition_specific",
+    "DGE_condition_specific_non")
+
+dge_time[[2]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  group_by(t, contrast) %>% 
+  summarise(n = n())
+
+ad_sig_stat_g <- 
+  dge_time[[2]] %>% unnest(cols = "result") %>% 
+    filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  filter(contrast =="LSvsNL", t =="visit_quarter") %>% 
+  pull(gene_name)
+
+```
+
+### Condition(LS/NL/HC)-specific change
+```{r}
+dge_time[[1]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  group_by(t, contrast) %>% summarise(n = n())
+
+condition_specific_g <- 
+  dge_time[[1]] %>% unnest(cols = "result") %>% 
+  filter(padj < .05, abs(log2FoldChange) > 1) %>% 
+  group_by(t, contrast) %>% nest() 
+
+g_tissue_injury <-
+  se[c("SAA2", "MUC1", "MGST1", "PTGS2"),] %>% as_tibble() %>% 
+    group_by(.feature, visit_quarter) %>% 
+    mutate(group_mean = mean(counts_scaled),
+           outlier = counts_scaled > 5 * group_mean,
+           outlier = ifelse(outlier, .8, .3)
+           # outlier = 0.05
+           ) %>%
+    ggplot(aes( x = visit_quarter, 
+                y = log2(counts_scaled + 1),
+                color = skin_type, 
+                fill = skin_type)) +
+    geom_jitter(aes(alpha = outlier) ,binaxis = "y", stackdir = "center") +
+    facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+    stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+    scale_fill_manual(values = pca_color) +
+    scale_color_manual(values = pca_color) +
+    ylab("log2 counts") + 
+    xlab("Quarter of visit") +
+    theme_classic()
+
+g_subcutis <-
+  se[c("CIDEC", "FABP4", "PLIN4"),] %>% as_tibble() %>% 
+    group_by(.feature, visit_quarter) %>% 
+    mutate(group_mean = mean(counts_scaled),
+           outlier = counts_scaled > 5 * group_mean,
+           outlier = ifelse(outlier, .8, .3)
+           # outlier = 0.05
+           ) %>%
+    ggplot(aes( x = visit_quarter, 
+                y = log2(counts_scaled + 1),
+                color = skin_type, 
+                fill = skin_type)) +
+    geom_jitter(aes(alpha = outlier)) +
+    # geom_dotplot(aes(alpha = outlier) ,binaxis = "y", stackdir = "center") +
+    facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+    stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+    scale_fill_manual(values = pca_color) +
+    scale_color_manual(values = pca_color) +
+    ylab("log2 counts") + 
+    xlab("Quarter of visit") +
+    theme_classic()
+
+```
+
+### Time outlier figure
+```{r}
+time_variation_t <- 
+  dge_tstat_result_filt %>% 
+  select(gene_name, name) %>% 
+  group_by(name) %>% 
+  nest %>% 
+  mutate(d = map(data, ~ se[.x$gene_name, ] %>% 
+                   as_tibble)) %>% 
+   mutate(skin_type = name %>% str_extract("(LS|NL|NN)"),
+          skin_type = ifelse(skin_type == "NN", "HC", skin_type),
+          time_type = name %>% str_extract("(quarter|visit$)")) %>% 
+  ungroup %>% 
+  select(skin_type, time_type, d)
+# saveRDS(time_variation_t, "data/_TMP/time_variation_t.rds")
+
+
+time_outlier <-
+  dge_tstat_result_filt %>% 
+  select(gene_name, name) %>% 
+  mutate(skin_type = str_extract(name, "(LS|NL|NN)"),
+         skin_type = ifelse(skin_type == "NN", "HC", skin_type),
+         t = str_extract(name, "(visit$|visit_quarter)")) %>% 
+  select(-name) %>% 
+  group_by(skin_type, t) %>% nest() %>% 
+  mutate(g_n = map(data, "gene_name")) %>% 
+  mutate(figure = 
+           pmap(list(g_n, skin_type, t),
+                       function(g_n, skin_type, t){
+  plot <-
+    se[g_n, se$skin_type == skin_type] %>% as_tibble() %>% 
+    ggboxplot(x = t,
+              y = "counts_scaled",
+              add = "jitter",
+              facet.by = ".feature",
+              xlab = ifelse(t == "visit_quarter", 
+                            "quarter",
+                            t),
+              ylab = FALSE,
+              yscale = "log10",
+              scales = "free", title = skin_type)
+  }),
+        save_f = pmap(list(skin_type, t, figure),
+                      function(skin_type, t, figure){
+          name = paste0("supplement_t_outlier_", paste(skin_type, t, sep = "_"),".png")
+          ggsave(filename = paste0("figure/supplement_t_outlier", name),
+                 figure, width = 16.8, height = 11.8)
+        }))
+
+```
+
+```{r fluctuating}
+time_variation_g <- 
+  se[c("IL34", "IL37", "CCL22", "IL2RB", 
+     "SERPINB4", "S100A9", "HRNR", 
+     "COL4A4", "OSM", "IL36A", "IL4R", "KRT16"), ] %>% 
+  as_tibble() %>% 
+  filter(!is.na(visit_quarter)) %>% 
+  group_by(.feature, skin_type, visit_quarter) %>% 
+  ggplot(aes( x = visit_quarter, 
+              y = log2(counts_scaled + 1),
+              color = skin_type, 
+              fill = skin_type)) +
+  geom_dotplot(alpha = .1, binaxis = "y", stackdir = "center") +
+  facet_wrap(~ .feature, scales = "free", nrow = 2) + 
+  stat_summary(aes( group= skin_type), fun = mean, geom= "line", size = 2, alpha = .95) +
+  scale_fill_manual(values = c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60"), name = "Tissue type") +
+  scale_color_manual(values = c("LS" = "#eb2d0c", "NL" = "#eb8b9b", "HC" = "#91cf60"), name = "Tissue type") +
+  ylab("log2 counts") + 
+  xlab("Quarter of visit") +
+  theme_classic()
+
+ggsave("data/supplementary/time_variation_g.png",
+       time_variation_g,
+       width = 10 , height = 4, 
+       dpi = "retina")
+
+```

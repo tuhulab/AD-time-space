@@ -1,0 +1,103 @@
+---
+title: "Figure S1 (Transcriptome heatmap, cosine distance)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(SummarizedExperiment)
+library(tidySummarizedExperiment)
+library(ComplexHeatmap)
+```
+
+## Transcriptomic profile (Figure S1)
+
+### Intra-group cosine similarity (Figure S1a)
+
+```{r}
+se <- readRDS("data/se.rds")
+```
+
+
+```{r fig-s1a-distance-Tissue type heterogenity, cache=TRUE, fig.cap="Cosine distance of three tissue types"}
+cosine_st <-
+    lapply(c("LS", "NL", "HC"), function(x){
+    se %>% 
+      subset(select = skin_type == x) %>% 
+      assay(2) %>% 
+      coop::cosine() %>% 
+      as.numeric()})
+
+names(cosine_st) <- c("LS", "NL", "HC")
+
+cosine_df <- plyr::ldply(cosine_st, tibble, .name_repair = ~ c("cos_dist"),
+                       .id = "skin_type") %>% tibble
+
+cosine_df %>% 
+  ggpubr::ggdensity(x = "cos_dist", fill = "skin_type", 
+                    palette = c("LS" = "#eb2d0c", "NL" = "#eb8b9b", 
+                                "HC" = "#91cf60"), xlab = "Cosine similarity") %>% 
+  ggpubr::ggpar(legend.title = "tissue type")
+```
+
+```{r median cosine similarity}
+lapply(cosine_st, median)
+```
+
+## Heatmap for all DGEs (Figure S1b)
+```{r figure 1b}
+core_genes <- read.csv("data/supplementary/table_s2.csv") %>% pull(gene_name)
+se_heatmap <- se[core_genes,] %>% 
+  mutate(biopsy_area = ifelse(biopsy_area == "back_of_knee",
+                              "back of knee",
+                              biopsy_area))
+heatmap_data_m <-
+  scale(assay(se_heatmap, 2) %>% t() %>% log1p(), 
+        center = TRUE, scale = TRUE) %>% t()
+sample_site_color <- 
+  colData(se_heatmap) %>% as_tibble() %>% pull(biopsy_area) %>% unique()
+color <- RColorBrewer::brewer.pal(length(sample_site_color), "Pastel2")
+names(color) <- sample_site_color
+heatmap_annotation <- 
+  HeatmapAnnotation(
+    `Tissue type` = colData(se_heatmap) %>% as_tibble() %>% pull(skin_type), 
+    `Anatomic region` = colData(se_heatmap) %>% as_tibble() %>% pull(biopsy_area),
+    col = list(`Tissue type` = c("LS" = "#eb2d0c", "NL" = "#eb8b9b", 
+                                "HC" = "#91cf60"),
+               `Anatomic region` = color),
+    annotation_legend_param = list(`Tissue type` = list(nrow = 1, 
+                                                        title_gp = gpar(fontsize = 16),
+                                                        labels_gp = gpar(fontsize = 16)),
+                                   `Anatomic region` = list(nrow = 1,
+                                                            title_gp = gpar(fontsize = 16),
+                                                            labels_gp = gpar(fontsize = 16))
+                                   ))
+
+heatmap <- ComplexHeatmap::Heatmap(heatmap_data_m,
+                        name = "gene expression",
+                        column_dend_reorder = TRUE,
+                        # clustering_method_columns = "complete",
+                        show_column_names = FALSE,
+                        show_row_names = FALSE,
+                        show_row_dend = FALSE,
+                        # row_names_gp = gpar(fontsize = min(10, 800 * 1.5 / dim(heatmap_data_m)[1])),
+                        top_annotation = heatmap_annotation,
+                        heatmap_legend_param = list(
+                          title_gp = gpar(fontsize = 16),
+                          labels_gp = gpar(fontsize = 14)
+                          ))
+
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+```
+
+```{r output figure 1b, eval=FALSE}
+png("data/supplementary/figure_s1c.png", width = 480*6, height = 480*6, res=300)
+draw(heatmap, heatmap_legend_side = "right",
+     annotation_legend_side = "top", merge_legend = FALSE)
+dev.off()
+```
+

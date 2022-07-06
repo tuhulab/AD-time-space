@@ -1,0 +1,47 @@
+---
+title: "04-heatmap"
+author: "Tu Hu"
+date: "05/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(SummarizedExperiment)
+library(tidybulk)
+library(tidySummarizedExperiment)
+library(dplyr)
+```
+
+## IL34, IL37, and UGT3A2 endotype
+
+```{r}
+se <- readRDS("data/se.rds")
+se_LS <- se[, se$skin_type == "LS"]
+```
+
+
+```{r}
+cor <- 
+  log2(assay(se_LS, 2) + 0.5) %>% t() %>% coop::pcor()
+
+index_g <- 
+  which(rownames(se_LS) %in% c("UGT3A2", "BTC", "KRT77",
+  "IL34", "IL37", "KRT15", "CLDN23", 
+  "KRT16", "KRT6",
+  "S100A8", "S100A12", 
+  "SERPINB4",
+  "TCN1",
+  "LCE3D", "LCE3A", "LCE3B",
+  "MMP12", 
+  "IL19", "IL22", "IL36A",
+  "SPRR3", "SPRR2F",
+  "DEFB4B"))
+
+cor[index_g, index_g] %>% 
+  corrplot::corrplot(order = "hclust", 
+                     col=colorRampPalette(c("blue","white","red"))(200))
+
+```
+

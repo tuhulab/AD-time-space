@@ -1,23 +1,28 @@
-# Multi-omics AD PhD
+# AD in time and space assessed by mini-biopsy
 
-This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Multi-omics AD PhD project.
+This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Tu Hu's PhD project.
 
-## Paper 1: AD in time and space
+## Data analysis pipeline
 
 [![DOI](https://zenodo.org/badge/378928145.svg)](https://zenodo.org/badge/latestdoi/378928145)
 
 [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](02-AD-transcriptomics-time-space.Rmd)
 
-* Load packages and environment variable
-* Baseline characteristics (Table S1 and Figure 1a)
-* Differential expressed genes: baseline (Table S2)
-* AD Transcriptomic profile (Figure S1, Figure 1b, Figure 1c)
-* Gene set enrichment analysis (Figure 2, Table S3)
-* Variance parition analysis (Figure 3, Table S4, Table S5)
-* Time effect - stepwise DGE analysis
-* Space effect - DGE anotomic area (Figure 4b 4c)
-* Space effect - biological replicates
-* Space effect - Hair (Figure 4c)
-* Cell deconvolution (Figure S4, Table 1)
-* Genome regulatory elements (Figure 5)
-* The longitudinal change of disease severity (Figure S7)
+| rmd                               | description                                                                         |
+|-----------------------------------|-------------------------------------------------------------------------------------|
+| 1-transcriptome-data-cleaning.Rmd | Data cleaning and curation                                                          |
+| 2-geo-upload.Rmd                  | Upload data to GEO                                                                  |
+| 3-table1-tableS1.Rmd              | Table 1 (Baseline characteristics) and Table S1 (sample metadata, subject metadata) |
+| 4-tableS2.Rmd                     | Table S2 (differential gene expression analysis)                                    |
+| 5-figure1.Rmd                     | Figure 1 (PCA, heatmap, Venn)                                                       |
+| 6-figure2.Rmd                     | Figure 2 (Across-study functional enrichment analysis)                              |
+| 7-figure3.Rmd                     | Figure 3 (Variance partition analysis)                                              |
+| 8-figure4.Rmd                     | Figure 4 (Space variation)                                                          |
+| 9-figureS1.Rmd                    | Figure S1 (Transcriptome heatmap, cosine distance)                                  |
+| 10-figureS2.Rmd                   | Figure S2 (Genome regulatory elements)                                              |
+| 11-figureS3.Rmd                   | Figure S3 (Time variation)                                                          |
+| 12-figureS4.Rmd                   | Figure S4 (Intraindividual variation)                                               |
+| 13-figureS5.Rmd                   | Figure S5 (Time fluctuation of disease severity)                                    |
+| 14-figureS6.Rmd                   | Figure S6 (Correlation heatmap of IL34, IL37, UGT3A2 and inflammatory biomarkers)   |
+
+## Shiny application for data exploration and downloading

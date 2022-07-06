@@ -1,0 +1,126 @@
+---
+title: "Figure 4 (Space variation)"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+## Space effect - DGE anotomic area (Figure 4b 4c)
+```{r DGE space, cache=TRUE, eval=FALSE}
+DGE_space <-
+  tibble(
+    C1 = c("LS", "HC"),
+    C2 = c("NL", "HC")
+  ) %>% 
+  mutate(
+    contrast = paste0(C1, "vs", C2),
+    se_exp = map2(C1, C2, ~ se[,se$skin_type %in% c(.x, .y)]),
+    design_f = ifelse(C1 == "HC" & C2 == "HC", 
+                      "~ subject + visit + biopsy_area", 
+                      "~ subject + skin_type + visit + biopsy_area"),
+    deseq = map2(se_exp, design_f, ~ DESeqDataSet(.x, .y %>% as.formula)),
+    deseq = map(deseq, ~ DESeq(.x, parallel = T)),
+    res_name = map(deseq, ~ resultsNames(.x) %>% grep(pattern = "biopsy_area", ., value = T))) %>% 
+  unnest(cols = res_name) %>% 
+  mutate(
+    res_shrink = map2(deseq, res_name, ~ lfcShrink(.x, coef = .y, type = "apeglm", parallel = T)),
+    res_shrink = map(res_shrink, ~ as_tibble(.x, rownames = "gene_name"))
+  )
+```
+
+### Table S5
+```{r output table s5, eval=FALSE}
+DGE_space_filter <- 
+  DGE_space %>% select(-se_exp, -design_f, -deseq) %>% 
+  unnest(cols=res_shrink) %>% 
+  filter(padj < .05, abs(log2FoldChange)>1)
+
+readr::write_csv(DGE_space_filter, "data/supplementary/table_s5_dge_space.csv")
+```
+
+## Space effect - biological replicates
+
+### Biological replicates
+```{r found biological replicates}
+bioreplicates <-
+  colData(se) %>% as_tibble() %>% 
+  mutate(biological_rep_id = paste(subject, visit, skin_type)) %>%
+  group_by(biological_rep_id) %>% 
+  summarise(n = n()) %>% 
+  filter(n == 2) %>% 
+  pull(biological_rep_id)
+
+bioreplicates_t <- 
+  colData(se) %>% as_tibble() %>% 
+  mutate(biological_rep_id = paste(subject, visit, skin_type)) %>% 
+  filter(biological_rep_id %in% bioreplicates) %>% 
+  left_join(se[c("CCL22"),] %>% as_tibble())
+# saveRDS(bioreplicates_t, "data/_TMP/bioreplicate_t.rds")
+
+replicate_g <-
+  bioreplicates_t %>% 
+    select(biological_rep_id, 
+           subject, visit, skin_type, feature, 
+           counts_scaled, replicate_ID) %>% 
+  ggplot(aes(x = replicate_ID, 
+             y = counts_scaled, 
+             group = biological_rep_id)) + 
+  geom_point(aes(color = skin_type)) + 
+  facet_grid(feature ~ skin_type, scales = "free") + 
+  geom_line(aes(color = skin_type), alpha = .5) + 
+  geom_boxplot(aes(group = replicate_ID, fill = skin_type), alpha = .5) + 
+  scale_color_manual(values = pca_color) + 
+  scale_fill_manual(values = pca_color) + 
+  scale_y_continuous(trans = "log2") +
+  xlab("replicate") +
+  theme(axis.title.y = element_blank())
+
+# ggsave("data/supplementary/supplement_replicate.png", replicate_g,
+#        height = 25, width = 8)
+```
+
+```{r}
+t <-
+  readRDS(url("https://cdn.jsdelivr.net/gh/tuhulab/Shiny_AD_time_space@master/data/bioreplicate_t.rds")) %>%
+  select(biological_rep_id,
+         subject, visit, skin_type, feature,
+         counts_scaled, replicate_ID) %>%
+  arrange(biological_rep_id) %>%
+  mutate(counts_scaled = counts_scaled + 1) %>%
+  filter(feature %in% "CCL22") %>% 
+  mutate(skin_type = 
+           case_when(skin_type == "LS" ~ "Lesional",
+                     skin_type == "NL" ~ "Non-lesional",
+                     skin_type == "HC" ~ "Healthy control"),
+         skin_type = 
+           factor(skin_type, levels = c("Healthy control",
+                                        "Non-lesional",
+                                        "Lesional")))
+
+stat_test <-
+  t %>% group_by(feature, skin_type) %>%
+  t_test(counts_scaled ~ replicate_ID, paired = T) %>%
+  add_significance() %>%
+  add_xy_position(x = "replicate_ID",
+                  y.trans = log2, step.increase = .08) %>%
+  group_by(feature) %>% mutate(y.position = max(y.position)) %>%
+  ungroup()
+
+g_bioreplicate <- 
+t %>% filter(counts_scaled > 50) %>% 
+    pivot_wider(names_from = replicate_ID, values_from = counts_scaled) %>% 
+ggpaired(cond1 = "01", cond2 = "02", y = "counts_scaled",
+         xlab = "Biological replicate",
+         ylab = "",
+         line.color = "grey", line.size = .4,
+         fill = "skin_type",
+         palette = c("Lesional" = "#eb2d0c", 
+                     "Non-lesional" = "#eb8b9b", 
+                     "Healthy control" = "#91cf60")) %>%
+    facet(facet.by = c("skin_type"), scales = "free_y") +
+    stat_pvalue_manual(stat_test, label = "p") +
+    scale_y_continuous(trans = "log2", expand = expansion(mult = c(.05, .1)), breaks = c(10, 100, 1000, 10000, 30000)) +
+  rremove("legend")
+
+
+```

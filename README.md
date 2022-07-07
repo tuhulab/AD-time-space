@@ -1,10 +1,12 @@
 # Atopic dermatitis in time and space
 
-This [bookdown](https://github.com/rstudio/bookdown) documents the reproducible data analysis pipelines for Tu Hu's PhD project.
+This repo documents the reproducible data analysis pipelines for AD in time and space project.
 
 ## Data analysis pipeline
 
-[![DOI](https://zenodo.org/badge/378928145.svg)](https://zenodo.org/badge/latestdoi/378928145)
+[![DOI](https://zenodo.org/badge/378928145.svg)](https://zenodo.org/badge/latestdoi/378928145). 
+
+We also recommend checking [GitHub repo](https://github.com/tuhulab/Shiny_AD_time_space) for any update.
 
 [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](02-AD-transcriptomics-time-space.Rmd)
 

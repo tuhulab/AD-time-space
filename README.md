@@ -4,9 +4,9 @@ This repo documents the reproducible data analysis pipelines for AD in time and 
 
 ## Data analysis pipeline
 
-[![DOI](https://zenodo.org/badge/378928145.svg)](https://zenodo.org/badge/latestdoi/378928145). 
+[![DOI](https://www.zenodo.org/badge/378928145.svg)](https://www.zenodo.org/badge/latestdoi/378928145)
 
-We also recommend checking [GitHub repo](https://github.com/tuhulab/Shiny_AD_time_space) for any update.
+Check [GitHub repo](https://github.com/tuhulab/Shiny_AD_time_space) for any update.
 
 [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](02-AD-transcriptomics-time-space.Rmd)
 

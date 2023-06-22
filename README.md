@@ -8,7 +8,7 @@ This repo documents the reproducible data analysis pipelines for AD in time and 
 
 Check [GitHub repo](https://github.com/tuhulab/Shiny_AD_time_space) for any update.
 
-View publication on Journal of Investigative Dermatology: [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](https://www.jidonline.org/article/S0022-202X(22)02657-4/fulltext))
+View publication in Journal of Investigative Dermatology: [Assessment of Spatial and Temporal Variation in the Skin Transcriptome of Atopic Dermatitis by Use of Minimally Invasive Punch Biopsies](https://www.jidonline.org/article/S0022-202X(22)02657-4/fulltext))
 
 | rmd                               | description                                                                         |
 |-----------------------------------|-------------------------------------------------------------------------------------|

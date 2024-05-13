@@ -1,0 +1,85 @@
+---
+title: "Biomap federated analysis"
+author: "Tu Hu"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(gprofiler2)
+```
+
+```{r}
+count_matrix <- 
+  readr::read_csv("data/geo/count_matrix.csv")
+
+gene_id <- 
+  count_matrix$gene_name %>% 
+  gprofiler2::gconvert() %>% 
+  as_tibble()
+
+gene_id_filt <- 
+  gene_id %>% 
+  group_by(input) %>% 
+  tidyr::nest() %>% 
+  mutate(n = purrr::map_int(data, nrow)) %>% 
+  filter(n == 1) %>% 
+  tidyr::unnest() %>% 
+  dplyr::select(input, target)
+
+count_matrix_filt <- 
+  count_matrix %>% 
+  filter(gene_name %in% gene_id_filt$input) %>% 
+  left_join(gene_id_filt, by = c("gene_name" = "input")) %>% 
+  dplyr::select(gene_id = target, contains("_")) %>% 
+  dplyr::select(-gene_name)
+
+count_matrix_filt_bl <- 
+  count_matrix_filt %>% 
+  dplyr::select(gene_id, contains(c("LS"))) %>% 
+  # dplyr::select(gene_id, starts_with("01")) %>% 
+  distinct(gene_id, .keep_all = T)
+
+readr::write_csv(count_matrix_filt_bl, "data/biomap_count_matrix_filt_all_visit.csv")
+```
+
+```{r}
+phenotype <- 
+  openxlsx::read.xlsx("data/geo/geo_meta.xlsx") %>% 
+  as_tibble()
+
+meta_data_manuscript <- 
+  openxlsx::read.xlsx("data/supplementary/table_s1.xlsx") %>% 
+  as_tibble()
+
+phenotype_bl <-
+  tibble(
+    title = colnames(count_matrix_filt_bl)[-1]
+  ) %>% 
+  left_join(phenotype) %>% 
+  select(id = title, 
+         baseline_characteristics_sex = gender, 
+         subject, skin_type,
+         scorad, easi_total_score, visit, date_visit, biopsy_area) %>% 
+  left_join(meta_data_manuscript) %>% 
+  rename(baseline_characteristics_age = age,
+         baseline_disease_activity_SCORAD = scorad,
+         baseline_disease_activity_EASI = easi_total_score)
+
+readr::write_csv(phenotype_bl, "data/biomap_phenotype_all_visit.csv")
+```
+
+```{r}
+# file.copy("data/biomap_phenotype_bl.csv", "../adpso_endotypes_federated/data/biomap_phenotype_bl.csv", overwrite = T)
+# file.copy("data/biomap_count_matrix_filt_bl.csv", "../adpso_endotypes_federated/data/biomap_count_matrix_filt_bl.csv", overwrite = T)
+
+file.copy("data/biomap_phenotype_all_visit.csv", 
+          "../adpso_endotypes_federated/data/biomap_phenotype_all_visit.csv",
+          overwrite = T)
+file.copy("data/biomap_count_matrix_filt_all_visit.csv", 
+          "../adpso_endotypes_federated/data/biomap_count_matrix_filt_all_visit.csv",
+          overwrite = T)
+
+```
+

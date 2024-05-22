@@ -33,15 +33,12 @@ count_matrix_filt <-
   filter(gene_name %in% gene_id_filt$input) %>% 
   left_join(gene_id_filt, by = c("gene_name" = "input")) %>% 
   dplyr::select(gene_id = target, contains("_")) %>% 
-  dplyr::select(-gene_name)
-
-count_matrix_filt_bl <- 
-  count_matrix_filt %>% 
+  dplyr::select(-gene_name) %>% 
   dplyr::select(gene_id, contains(c("LS"))) %>% 
   # dplyr::select(gene_id, starts_with("01")) %>% 
   distinct(gene_id, .keep_all = T)
 
-readr::write_csv(count_matrix_filt_bl, "data/biomap_count_matrix_filt_all_visit.csv")
+# readr::write_csv(count_matrix_filt_bl, "data/biomap_count_matrix_filt_all_visit.csv")
 ```
 
 ```{r}
@@ -53,7 +50,7 @@ meta_data_manuscript <-
   openxlsx::read.xlsx("data/supplementary/table_s1.xlsx") %>% 
   as_tibble()
 
-phenotype_bl <-
+phenotype <-
   tibble(
     title = colnames(count_matrix_filt_bl)[-1]
   ) %>% 
@@ -63,23 +60,79 @@ phenotype_bl <-
          subject, skin_type,
          scorad, easi_total_score, visit, date_visit, biopsy_area) %>% 
   left_join(meta_data_manuscript) %>% 
-  rename(baseline_characteristics_age = age,
+  rename(
+    # baseline_characteristics_age = age,
          baseline_disease_activity_SCORAD = scorad,
-         baseline_disease_activity_EASI = easi_total_score)
+         baseline_disease_activity_EASI = easi_total_score) %>% 
+  mutate(baseline_characteristics_sex= factor(baseline_characteristics_sex),
+         baseline_characteristics_drug_washout = factor("no"))
 
-readr::write_csv(phenotype_bl, "data/biomap_phenotype_all_visit.csv")
+
+age_age_onset <- 
+  phenotype %>% filter(visit == "01") %>% select(subject, age, age_onset) %>% distinct() %>% arrange(subject) %>% 
+  mutate(baseline_characteristics_onset_age = case_when(
+    age_onset == "<1" ~ "0",
+    TRUE ~ age_onset
+  ),
+  baseline_characteristics_age = age,
+  baseline_characteristics_onset_age = as.numeric(baseline_characteristics_onset_age)) %>% 
+  select(-age_onset)
+
+phenotype_age_onset <- 
+  phenotype %>% left_join(age_age_onset, by = "subject") %>% 
+  mutate(baseline_characteristics_onset_early_ad = ifelse(baseline_characteristics_onset_age <=2, "yes", "no"),
+        baseline_characteristics_onset_late_ad = ifelse(baseline_characteristics_onset_age > 18, "yes", "no")) %>% 
+  select(id, visit, contains("baseline"))
 ```
 
 ```{r}
 # file.copy("data/biomap_phenotype_bl.csv", "../adpso_endotypes_federated/data/biomap_phenotype_bl.csv", overwrite = T)
 # file.copy("data/biomap_count_matrix_filt_bl.csv", "../adpso_endotypes_federated/data/biomap_count_matrix_filt_bl.csv", overwrite = T)
 
-file.copy("data/biomap_phenotype_all_visit.csv", 
-          "../adpso_endotypes_federated/data/biomap_phenotype_all_visit.csv",
-          overwrite = T)
-file.copy("data/biomap_count_matrix_filt_all_visit.csv", 
-          "../adpso_endotypes_federated/data/biomap_count_matrix_filt_all_visit.csv",
-          overwrite = T)
 
+# v1
+count_v1 <- count_matrix_filt %>% select(gene_id, starts_with("01_"))
+meta_v1 <- phenotype_age_onset %>% filter(visit == "01") %>% select(-visit)
+
+readr::write_csv(count_v1, "data/biomap_count_v1.csv")
+readr::write_csv(meta_v1, "data/biomap_meta_v1.csv")
+
+# V2
+count_v2 <- count_matrix_filt %>% select(gene_id, starts_with("02_"))
+meta_v2 <- phenotype_age_onset %>% filter(visit == "02") %>% select(-visit)
+
+readr::write_csv(count_v2, "data/biomap_count_v2.csv")
+readr::write_csv(meta_v2, "data/biomap_meta_v2.csv")
+
+# V3
+count_v3 <- count_matrix_filt %>% select(gene_id, starts_with("03_"))
+meta_v3 <- phenotype_age_onset %>% filter(visit == "03")%>% select(-visit)
+
+readr::write_csv(count_v3, "data/biomap_count_v3.csv")
+readr::write_csv(meta_v3, "data/biomap_meta_v3.csv")
+
+# V4
+count_v4 <- count_matrix_filt %>% select(gene_id, starts_with("04_"))
+meta_v4 <- phenotype_age_onset %>% filter(visit == "04")%>% select(-visit)
+
+readr::write_csv(count_v4, "data/biomap_count_v4.csv")
+readr::write_csv(meta_v4, "data/biomap_meta_v4.csv")
+
+# V5
+count_v5 <- count_matrix_filt %>% select(gene_id, starts_with("05_"))
+meta_v5 <- phenotype_age_onset %>% filter(visit == "05")%>% select(-visit)
+
+readr::write_csv(count_v5, "data/biomap_count_v5.csv")
+readr::write_csv(meta_v5, "data/biomap_meta_v5.csv")
+
+# all visit
+count_all_visit <- count_matrix_filt
+meta_all_visit <- phenotype_age_onset%>% select(-visit)
+readr::write_csv(count_all_visit, "data/biomap_count_all_visit.csv")
+readr::write_csv(meta_all_visit, "data/biomap_meta_all_visit.csv")
+```
+
+```{bash}
+cp data/biomap* ../adpso_endotypes_federated/input
 ```
 

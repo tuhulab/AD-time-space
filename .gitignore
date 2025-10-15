@@ -48,3 +48,4 @@ data/metadata
 code_quality_report.rds
 code_quality_score.txt
 session_info.rds
+code_quality_metrics.rds

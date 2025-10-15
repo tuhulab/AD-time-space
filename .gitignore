@@ -43,3 +43,9 @@ multiomics_ad_phd_files/
 # data
 data/*.rds
 data/metadata
+
+# Code quality reports (generated)
+code_quality_report.rds
+code_quality_score.txt
+session_info.rds
+code_quality_metrics.rds
